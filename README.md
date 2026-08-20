@@ -149,8 +149,22 @@ in place leaves macOS holding a stale code signature, and the kernel then kills 
 sight **with no error message at all** — the command simply dies. `install.sh` deletes
 before it copies.
 
+Two LaunchAgents are installed, and both matter: one runs the server, the other
+starts the app at login. A machine where only the server came back is a machine
+that receives messages silently, because the app is what raises the popups.
+
 Then `collab key -new` if you have not already, and `collab test-notify` once. macOS
 asks whether to allow notifications from "collab" the first time; say yes.
+
+**MCP** — register the core once per machine, in `~/.claude.json` on the Mac or
+`%USERPROFILE%\.claude.json` on Windows:
+
+    "mcpServers": { "collab": { "command": "/Users/you/.local/bin/collab", "args": ["mcp"] } }
+
+An absolute path on purpose: the server is spawned by the app, which does not
+necessarily have `~/.local/bin` on its PATH. No `env` block is needed — name,
+channel and key all come from `~/.collab-config`, and the core looks at `HOME` and
+then `USERPROFILE`, so the same arrangement works on both machines.
 
 ## Windows
 
@@ -165,6 +179,8 @@ machine here. A native window for that side is still to do.
 
     build.sh    builds both machines' worth of it into dist/
     install.sh  installs this Mac's half, and upgrades it
+    com.tankun.collab.plist      LaunchAgent for the server
+    com.tankun.collab.app.plist  LaunchAgent for the app
 
     core/src/main.rs     command dispatch
     core/src/config.rs   settings, ~/.collab-config, `collab who`

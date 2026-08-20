@@ -20,14 +20,19 @@ rm -rf "$HOME/Applications/Collab.app"
 cp -R  dist/macos/Collab.app "$HOME/Applications/Collab.app"
 "$LSREG" -f "$HOME/Applications/Collab.app"
 
-cp com.tankun.collab.plist "$HOME/Library/LaunchAgents/"
-launchctl bootout   "gui/$(id -u)/com.tankun.collab" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.tankun.collab.plist"
+# The server, and the app. The app matters as much: it is what raises the
+# popups, so a machine where only the server came back at login is a machine
+# that receives messages silently.
+for label in com.tankun.collab com.tankun.collab.app; do
+  cp "$label.plist" "$HOME/Library/LaunchAgents/"
+  launchctl bootout   "gui/$(id -u)/$label" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"
+done
 
 echo "installed:"
 echo "  $BIN/collab"
 echo "  $HOME/Applications/Collab.app"
-echo "  server running under launchd (starts at login, restarts if it dies)"
+echo "  server and app both start at login (launchd)"
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo; echo "note: $BIN is not on your PATH — add it, or use the full path" ;;
