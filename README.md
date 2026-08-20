@@ -27,7 +27,11 @@ A channel is a separate conversation, and it is made by **a person**, with the `
 button in the app. It comes with 32 bytes of real entropy, printed as base64:
 
     #roblox-game
-    0VFDB+KStMfJURdK4/muTgrIzdFwgpG7Fb/ZaN02s9E=
+    <44 characters of base64 — the app prints the real one>
+
+Real keys are not written down anywhere but `~/.collab-channels.json`, which is
+`chmod 600`. Do not paste one into a file that might be committed — that is a mistake
+this README made once, and git remembers.
 
 Send that key to the other person however you like. On their machine they paste it
 into the same panel, or run:
