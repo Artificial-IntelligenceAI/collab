@@ -142,12 +142,30 @@ fn sessions_dir() -> PathBuf {
 /// same chat's watcher — which is how it recognises its own messages, and how
 /// it knows to follow the channel the chat actually joined rather than the
 /// machine's default.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Session {
     #[serde(default)]
     pub name: String,
+    /// Every channel this chat is listening to. A chat can work on the shop and
+    /// the lobby at once, and hearing only one of them would be worse than
+    /// hearing neither — it would look like the other had gone quiet.
     #[serde(default)]
+    pub channels: Vec<String>,
+    /// Older files held a single channel here.
+    #[serde(default, skip_serializing)]
     pub channel: String,
+}
+
+impl Session {
+    pub fn listening(&self) -> Vec<String> {
+        if !self.channels.is_empty() {
+            self.channels.clone()
+        } else if !self.channel.is_empty() {
+            vec![self.channel.clone()]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 pub fn session() -> Option<Session> {
@@ -163,7 +181,7 @@ pub fn session() -> Option<Session> {
     // Files written before channels were part of this hold a bare name.
     Some(serde_json::from_str(raw).unwrap_or(Session {
         name: raw.to_string(),
-        channel: String::new(),
+        ..Default::default()
     }))
 }
 
@@ -171,22 +189,23 @@ pub fn session_name() -> Option<String> {
     session().map(|s| s.name).filter(|s| !s.is_empty())
 }
 
-/// The channel this chat joined, or the machine's default if it has not.
-pub fn session_channel() -> String {
-    session()
-        .map(|s| s.channel)
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(channel)
+/// Every channel this chat is listening to. Empty means it has not subscribed.
+pub fn session_channels() -> Vec<String> {
+    session().map(|s| s.listening()).unwrap_or_default()
 }
 
-pub fn save_session(name: &str, chan: &str) {
+pub fn save_session(name: &str, chans: &[String]) {
     let id = session_id();
     if id.is_empty() {
         return;
     }
     let dir = sessions_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let s = Session { name: name.into(), channel: chan.into() };
+    let s = Session {
+        name: name.into(),
+        channels: chans.to_vec(),
+        channel: String::new(),
+    };
     if let Ok(text) = serde_json::to_string(&s) {
         let _ = std::fs::write(dir.join(id), text);
     }

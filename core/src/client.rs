@@ -10,24 +10,49 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::time::Duration;
 
-pub fn last_seen() -> i64 {
-    std::fs::read_to_string(config::seen_path())
+/// Where we got to, per channel. One number cannot stand for several channels:
+/// a chat listening to the shop and the lobby is at a different point in each,
+/// and a single mark would make one of them skip.
+fn seen_map() -> std::collections::BTreeMap<String, i64> {
+    std::fs::read_to_string(config::home(".collab-seen.json"))
         .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn seen_for(channel: &str) -> i64 {
+    if let Some(n) = seen_map().get(channel) {
+        return *n;
+    }
+    // Before channels each had their own, there was one file for the one channel.
+    if channel == config::channel() {
+        return std::fs::read_to_string(config::seen_path())
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+    }
+    0
 }
 
 /// Losing our place is not allowed to be quiet either: if we cannot write it
-/// down we would replay the whole history on the next reconnect and never say why.
-pub fn save_seen(n: i64, warned: &mut bool) {
-    if let Err(e) = std::fs::write(config::seen_path(), n.to_string()) {
-        if !*warned {
-            *warned = true;
-            eprintln!(
-                "* cannot record my place in {} ({e}) — after a reconnect you may see old messages again",
-                config::seen_path().display()
-            );
-        }
+/// down we would replay a channel's whole history on the next reconnect and
+/// never say why.
+pub fn save_seen_for(channel: &str, n: i64, warned: &mut bool) {
+    let mut map = seen_map();
+    map.insert(channel.to_string(), n);
+    let path = config::home(".collab-seen.json");
+    let ok = serde_json::to_string(&map)
+        .ok()
+        .and_then(|t| std::fs::write(&path, t).ok())
+        .is_some();
+    if ok {
+        config::lock_down(&path);
+    } else if !*warned {
+        *warned = true;
+        eprintln!(
+            "* cannot record my place in {} — after a reconnect you may see old messages again",
+            path.display()
+        );
     }
 }
 
@@ -45,7 +70,7 @@ fn dial(channel: &str) -> std::io::Result<Conn> {
 fn stream_channel<F, S>(
     channel: &str,
     since: &std::sync::atomic::AtomicI64,
-    want: &dyn Fn() -> String,
+    still_wanted: &dyn Fn() -> bool,
     on_msg: &mut F,
     on_status: &mut S,
 ) where
@@ -55,7 +80,7 @@ fn stream_channel<F, S>(
     use std::sync::atomic::Ordering::SeqCst;
     let mut announced = false;
     loop {
-        if want() != channel {
+        if !still_wanted() {
             return;
         }
         match dial(channel) {
@@ -92,7 +117,7 @@ fn stream_channel<F, S>(
                         Ok(Some(m)) => on_msg(&m),
                         Ok(None) => break,
                         Err(e) if is_timeout(&e) => {
-                            if want() != channel {
+                            if !still_wanted() {
                                 return;
                             }
                         }
@@ -120,56 +145,83 @@ fn is_timeout(e: &std::io::Error) -> bool {
     )
 }
 
-pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: bool) -> ! {
+/// Which channels this process should be listening to, right now. A chat's
+/// subscriptions can change while it runs, so this is asked again rather than
+/// decided once.
+fn desired(all: bool) -> Vec<String> {
     if all {
-        // One connection per channel: a connection belongs to a channel now,
-        // because it is that channel's key that opens it. Each keeps its own
-        // place, since one seen-file cannot stand for several channels.
-        let mut handles = Vec::new();
-        for name in channels::names() {
-            let start = since.unwrap_or(0);
-            handles.push(std::thread::spawn(move || {
-                watch_one(&name, start, false, as_json, popups, &|| name.clone())
-            }));
-        }
-        if handles.is_empty() {
-            report_no_channels(as_json);
-        }
-        for h in handles {
-            let _ = h.join();
-        }
-        std::process::exit(0)
+        return channels::names();
     }
+    if config::session_id().is_empty() {
+        return vec![config::channel()];
+    }
+    config::session_channels()
+}
 
-    // A chat follows the channel it joined; anything else follows the config.
-    let want = || {
-        if config::session_id().is_empty() {
-            config::channel()
-        } else {
-            config::session_channel()
-        }
-    };
+pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: bool) -> ! {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    // One connection per channel, because a connection is opened by a channel's
+    // key. Threads are started as subscriptions appear and end by themselves
+    // when the subscription goes, so the set can change without a restart.
+    let running: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let mut complained: HashSet<String> = HashSet::new();
+    let mut said_empty = false;
+
     loop {
-        let here = want();
-        if channels::key_bytes(&here).is_none() {
-            report_unknown(&here, as_json);
-            std::thread::sleep(Duration::from_secs(2));
-            continue;
+        let want = desired(all);
+        if want.is_empty() {
+            if !said_empty {
+                report_nothing_subscribed(as_json, all);
+                said_empty = true;
+            }
+        } else {
+            said_empty = false;
         }
-        watch_one(&here, since.unwrap_or_else(last_seen), save, as_json, popups, &want);
+
+        for ch in want {
+            if channels::key_bytes(&ch).is_none() {
+                if complained.insert(ch.clone()) {
+                    report_unknown(&ch, as_json);
+                }
+                continue;
+            }
+            complained.remove(&ch);
+            {
+                let mut r = running.lock().unwrap();
+                if r.contains(&ch) {
+                    continue;
+                }
+                r.insert(ch.clone());
+            }
+            let running = Arc::clone(&running);
+            let name = ch.clone();
+            let start = since.unwrap_or_else(|| seen_for(&ch));
+            std::thread::spawn(move || {
+                let mine = name.clone();
+                let still = move || desired(all).contains(&mine);
+                watch_one(&name, start, save, as_json, popups, &still);
+                running.lock().unwrap().remove(&name);
+            });
+        }
+        std::thread::sleep(Duration::from_secs(2));
     }
 }
 
-fn report_no_channels(as_json: bool) -> ! {
+fn report_nothing_subscribed(as_json: bool, all: bool) {
+    let why = if all {
+        "no channels on this machine yet — make one in the collab app"
+    } else {
+        "this chat is not subscribed to any channel yet — call collab_subscribe"
+    };
     if as_json {
         println!("{}", serde_json::json!({"type":"status","connected":false,
-            "error":"no channels on this machine yet","addr":config::addr(),"from":0}));
+            "error":why,"addr":config::addr(),"from":0}));
+        let _ = std::io::stdout().flush();
     } else {
-        eprintln!("collab: no channels on this machine yet — make one in the collab app");
+        eprintln!("collab: {why}");
     }
-    let _ = std::io::stdout().flush();
-    std::thread::sleep(Duration::from_secs(3600));
-    std::process::exit(0)
 }
 
 fn report_unknown(name: &str, as_json: bool) {
@@ -187,7 +239,7 @@ fn watch_one(
     save: bool,
     as_json: bool,
     popups: bool,
-    want: &dyn Fn() -> String,
+    still_wanted: &dyn Fn() -> bool,
 ) {
     let mut warned = false;
     let mut first = true;
@@ -207,7 +259,7 @@ fn watch_one(
             && config::session_name().is_some_and(|n| n == m.from);
         cursor.store(m.seq, SeqCst);
         if save {
-            save_seen(m.seq, &mut warned);
+            save_seen_for(channel, m.seq, &mut warned);
         }
         if mine {
             return;
@@ -248,7 +300,7 @@ fn watch_one(
         let _ = std::io::stdout().flush();
     };
 
-    stream_channel(channel, &cursor, want, &mut on_msg, &mut on_status);
+    stream_channel(channel, &cursor, still_wanted, &mut on_msg, &mut on_status);
 }
 
 /// Delivers one message on $COLLAB_CHANNEL, under this machine's own name.
