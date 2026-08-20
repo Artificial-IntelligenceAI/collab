@@ -162,6 +162,57 @@ pub fn who_json() {
     println!("{j}");
 }
 
+/// Claude Code gives an MCP server and anything a Monitor runs the same
+/// CLAUDE_CODE_SESSION_ID, which is what lets one chat's `collab watch` know
+/// which messages that same chat sent. Empty anywhere else — a plain terminal,
+/// or the app under launchd — and then nothing is suppressed, which is right.
+pub fn session_id() -> String {
+    std::env::var("CLAUDE_CODE_SESSION_ID").unwrap_or_default()
+}
+
+fn sessions_dir() -> PathBuf {
+    home(".collab-sessions")
+}
+
+/// The name this chat is posting under, as recorded by collab_set_name.
+pub fn session_name() -> Option<String> {
+    let id = session_id();
+    if id.is_empty() {
+        return None;
+    }
+    std::fs::read_to_string(sessions_dir().join(id))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn save_session_name(name: &str) {
+    let id = session_id();
+    if id.is_empty() {
+        return;
+    }
+    let dir = sessions_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join(id), name);
+    prune_sessions(&dir);
+}
+
+/// Chats end without saying so, so their files would pile up for ever.
+fn prune_sessions(dir: &std::path::Path) {
+    let week = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let stale = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| t.elapsed().map(|age| age > week).unwrap_or(false))
+            .unwrap_or(false);
+        if stale {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
 pub fn who() {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "name     {:<28} {}", name(), source("COLLAB_NAME"));

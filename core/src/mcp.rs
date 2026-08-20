@@ -158,6 +158,9 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                 return text("a name cannot be empty".into());
             }
             *session_name = Some(chosen.clone());
+            // Written down so this chat's own watcher can recognise its own
+            // messages coming back and not read them out again.
+            config::save_session_name(&chosen);
             text(format!(
                 "you are \"{chosen}\" on #{} for this chat (on {})",
                 config::channel(),

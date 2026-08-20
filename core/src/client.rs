@@ -120,10 +120,26 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
     let cursor = std::sync::atomic::AtomicI64::new(since.unwrap_or_else(last_seen));
     let read_cursor = || cursor.load(std::sync::atomic::Ordering::SeqCst);
 
+    let host = config::name();
+
     stream(
         &channel,
         read_cursor,
         |m| {
+            // A chat does not need its own words read back to it. Only this
+            // chat's own are dropped — a sibling chat on the same machine is
+            // someone else, and worth hearing. The place in the sequence still
+            // advances, so a resume after this is still exact.
+            let mine = m.via == crate::msg::ACTOR_AI
+                && m.host == host
+                && config::session_name().is_some_and(|n| n == m.from);
+            if mine {
+                cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
+                if save {
+                    save_seen(m.seq, &mut warned);
+                }
+                return;
+            }
             if as_json {
                 if let Ok(s) = serde_json::to_string(&serde_json::json!({"type":"msg","msg":m})) {
                     println!("{s}");

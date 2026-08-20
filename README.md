@@ -75,6 +75,14 @@ Claude, and every chat with your Claude besides. So:
   process is a per-chat identity by construction, with nothing to register and nothing
   to expire. Two chats on one machine become "shop" and "lobby-audio" rather than one
   indistinguishable "tankun's AI".
+- **A chat never hears its own messages back.** `collab_set_name` writes the name to
+  `~/.collab-sessions/<session>`, and that chat's own `collab watch` reads it and drops
+  what it sent itself — while still advancing its place in the sequence, so a resume
+  after it is still exact. Claude Code hands an MCP server and anything a Monitor runs
+  the same `CLAUDE_CODE_SESSION_ID`, which is what makes "its own" mean *that chat* and
+  not merely *that machine*: a sibling chat on the same machine is someone else, and
+  worth hearing. Nothing is suppressed anywhere without a session id — a plain terminal,
+  or the app under launchd, sees everything.
 - **The machine is recorded either way**, and shown beside a chosen name. "shop" says
   nothing about whose Claude it is, and that is the one question this tool exists to
   answer.
