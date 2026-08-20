@@ -159,7 +159,8 @@ const usage = `usage:
   collab post "message"                 send a chat message
   collab change -action edited -target "ServerScriptService/Shop" "what changed"
   collab log [-changes]                 history
-  collab gui [-no-open]                 open the window
+  collab gui [-no-open] [-notify]        open the window
+  collab test-notify                    check that popup notifications work
   collab mcp                            run as an MCP server`
 
 func main() {
@@ -180,6 +181,8 @@ func main() {
 		showLog(os.Args[2:])
 	case "gui":
 		runGUI(os.Args[2:])
+	case "test-notify":
+		testNotify()
 	case "mcp":
 		runMCP()
 	default:

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinExe, not Exe: a console window must not flash up every time the
+         other session says something. Redirected stdout/stderr still reach
+         collab, which is how `collab test-notify` reports failures. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>collab-notify</AssemblyName>
+    <Nullable>enable</Nullable>
+    <!-- Cross-building a Windows target from the Mac. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- Trimming is deliberately off. The toast APIs are reached through COM
+         interop, which a trimmer cannot see through; it would build fine here
+         and fail on her machine, where nobody can debug it. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+</Project>

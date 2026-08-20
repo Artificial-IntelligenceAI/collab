@@ -24,11 +24,12 @@ import (
 var uiFS embed.FS
 
 type gui struct {
-	mu   sync.Mutex
-	msgs []Msg
-	last int64
-	up   bool
-	subs map[chan string]bool
+	mu    sync.Mutex
+	msgs  []Msg
+	last  int64
+	up    bool
+	subs  map[chan string]bool
+	popup *notifier
 }
 
 func (g *gui) since() int64 {
@@ -46,6 +47,7 @@ func (g *gui) add(m Msg) {
 	g.msgs = append(g.msgs, m)
 	g.last = m.Seq
 	g.mu.Unlock()
+	g.popup.send(m)
 	b, _ := json.Marshal(m)
 	g.emit("msg", string(b))
 }
@@ -82,10 +84,14 @@ func runGUI(args []string) {
 	fs := flag.NewFlagSet("gui", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	noOpen := fs.Bool("no-open", false, "don't open a browser, just print the address")
+	popups := fs.Bool("notify", false, "raise OS notifications too (`collab watch` already does this)")
 	if fs.Parse(args) != nil {
 		os.Exit(2)
 	}
 	g := &gui{subs: map[chan string]bool{}}
+	if *popups {
+		g.popup = newNotifier(name())
+	}
 
 	// Watch every channel — the views filter, the wire does not.
 	go stream("", g.since, g.add, g.status)

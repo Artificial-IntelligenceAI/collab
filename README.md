@@ -9,10 +9,11 @@ can tell each other what they just did.
     collab change ...         record a structured change (see below)
     collab log [-changes]     history
     collab gui                open the window — chat, changes, search
+    collab test-notify        check that popup notifications work
     collab mcp                run as an MCP server (tools only)
 
 Env: `COLLAB_HOST`, `COLLAB_PORT` (8787), `COLLAB_NAME`, `COLLAB_CHANNEL` (general),
-`COLLAB_GUI_PORT` (8788)
+`COLLAB_GUI_PORT` (8788), `COLLAB_NOTIFY` (`0` turns popups off)
 
 ## Two kinds of message
 
@@ -50,6 +51,45 @@ only, never to the network.
 The window is a viewer plus a chat box; it is not where changes get recorded. That
 is the AI's job, through `collab change` or the MCP tool.
 
+## Notifications
+
+Real ones — collab's own name and icon, in Notification Centre on the Mac and the
+Action Centre on Windows, exactly like any other app. They come from `collab watch`,
+which Monitor is already running, so they arrive with the window closed and the
+browser shut.
+
+    collab test-notify        # check they work, without waiting for anyone to speak
+
+Neither platform will let a plain Go binary raise one. macOS attributes a
+notification to an **application bundle**; Windows attributes a toast to a
+registered **AppUserModelID**. Anything that dodges this — `osascript` on the Mac,
+PowerShell on Windows — pops up under somebody else's name. So there are two small
+helpers, built from source in `notify/`:
+
+- **`collab.app`** — Swift, ad-hoc signed with a stable identifier so the permission
+  you grant survives rebuilds. Lives next to `collab`, or in `~/Applications`.
+- **`collab-notify.exe`** — C#, self-contained, so nothing has to be installed on
+  the Windows machine. That is what makes it 94 MB: a framework-dependent build is
+  24 MB but requires a Microsoft runtime install, and "no runtime on either machine"
+  is the whole reason this project is written in Go. It registers a Start Menu
+  shortcut and a registry entry on first run. Lives next to `collab.exe`, along
+  with `collab.png`, which is the icon the toast shows.
+
+The Windows helper is **built but not verified** — it cross-compiles from the Mac,
+but there is no Windows machine here to run it on, and toast registration is the
+fiddly part. `collab test-notify` on her machine is the check; if it prints an
+error, that error is the thing to fix.
+
+**A burst is one popup, not forty.** When a machine wakes after being asleep the
+server replays everything it missed at once, and forty popups in a row is not a
+notification, it is a punishment. Arrivals are collected until the channel goes
+quiet for 700 ms: one message becomes a detailed popup, a burst becomes a summary
+("sis · 6 new on #roblox · 6 changes"). Your own messages never pop.
+
+Popups come from `collab watch`. The window can raise them too — `collab gui
+-notify` — but that is off by default, because you would otherwise get each one
+twice. `COLLAB_NOTIFY=0` turns them off entirely.
+
 ## Why it works the way it does
 
 **Every message has a sequence number, and a watcher remembers the last one it saw.**
@@ -81,22 +121,37 @@ the Windows build a single command with nothing to install on either machine.
 
 ## Build
 
-    go build -o collab-macos-arm64 .
-    GOOS=windows GOARCH=amd64 go build -o collab.exe .
+    ./build.sh
+
+Puts everything in `dist/macos` and `dist/windows`. The Go binaries need only Go;
+`collab.app` needs Xcode's Swift; `collab-notify.exe` needs the .NET SDK
+(`brew install dotnet`) and is skipped with a warning if it is missing, rather than
+quietly shipping a Windows build with no popups in it.
+
+Just the Go parts, if that is all you changed:
+
+    GOOS=darwin  GOARCH=arm64 go build -o dist/macos/collab .
+    GOOS=windows GOARCH=amd64 go build -o dist/windows/collab.exe .
 
 ## Setup
 
 **Mac (server side)**
 
-    cp collab-macos-arm64 ~/.local/bin/collab
+    cp dist/macos/collab ~/.local/bin/collab
+    cp -R dist/macos/collab.app ~/Applications/            # the notifier
     sudo ln -sf ~/.local/bin/collab /usr/local/bin/collab      # optional, for PATH
     cp com.tankun.collab.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.tankun.collab.plist
 
+Then `collab test-notify` once. macOS asks whether to allow notifications from
+"collab" the first time, the same as any app; say yes.
+
 The LaunchAgent runs `collab serve` only. Open the window yourself with `collab gui`
 when you want to look at it.
 
-**Windows (her side)** — copy `collab.exe`, then set:
+**Windows (her side)** — copy the whole of `dist/windows` (`collab.exe`,
+`collab-notify.exe`, `collab.png`) into one folder, keeping them together — the
+notifier is found next to `collab.exe`. Then set:
 
     setx COLLAB_HOST Tankuns-MacBook-Pro.local
     setx COLLAB_NAME sis
@@ -107,6 +162,8 @@ If `.local` doesn't resolve, use the Mac's LAN address instead.
 
     setx COLLAB_CHANNEL roblox        # or: export COLLAB_CHANNEL=roblox
 
+Then `collab test-notify` on each machine.
+
 **MCP registration** (optional, for the typed tools) — add to the project's
 `mcpServers`:
 
@@ -116,9 +173,14 @@ Tools: `collab_post`, `collab_change`, `collab_recent`, `collab_changes`.
 
 ## Files
 
+    build.sh    builds both machines' worth of it into dist/
     main.go     types, history file, command dispatch
     server.go   the hub: sequence numbers, subscribers, replay-on-connect
     client.go   watch, post, change, log, and the reconnect rule
     gui.go      the local web server behind `collab gui`
     ui.html     the window itself, embedded into the binary
+    notify.go   finding the platform helper, and coalescing bursts into one popup
     mcp.go      the MCP tools
+
+    notify/mac/       Swift source for collab.app, and the icon generator
+    notify/windows/   C# source for collab-notify.exe

@@ -73,10 +73,12 @@ func stream(ch string, since func() int64, onMsg func(Msg), onStatus func(up boo
 
 func watch() {
 	first := true
+	popup := newNotifier(name()) // nil when this machine has no notifier
 	stream(channel(), lastSeen,
 		func(m Msg) {
 			fmt.Printf("[%s] %s: %s\n", m.Channel, m.From, m.line())
 			saveSeen(m.Seq)
+			popup.send(m)
 		},
 		func(up bool, from int64) {
 			if up {

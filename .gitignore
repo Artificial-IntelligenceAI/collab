@@ -1,5 +1,17 @@
-# Rebuilt in one command; see README.
+# Built in one command; see build.sh.
 collab
 collab.exe
 collab-macos-arm64
+collab.app/
+dist/
 *.out
+
+# generated from notify/mac/icon.swift
+notify/mac/collab.icns
+notify/mac/icon-preview.png
+notify/windows/collab.png
+
+# C# build leftovers
+notify/windows/bin/
+notify/windows/obj/
+notify/windows/out/
