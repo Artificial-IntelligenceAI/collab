@@ -285,13 +285,24 @@ function render(keepScroll) {
 // "the page has not chosen yet" — otherwise picking "all channels" would snap
 // back to your own the moment a message arrived.
 function refreshChannels() {
-  const seen = [...new Set([myChannel, ...msgs.map(m => m.channel)].filter(Boolean))].sort();
+  const seen = [...new Set([myChannel, chanFilter, ...msgs.map(m => m.channel)].filter(Boolean))].sort();
   if (chanFilter === null) chanFilter = myChannel || "";
   else if (chanFilter !== "" && !seen.includes(chanFilter)) chanFilter = "";
   const sel = $("channel");
   sel.innerHTML = `<option value="">all channels</option>`
     + seen.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   sel.value = chanFilter;
+}
+
+// You post where you are looking. Following a notification into another
+// channel and then typing into what turned out to be a different one would be
+// a nasty little trap.
+function postChannel() { return chanFilter || myChannel; }
+
+function updateHint() {
+  $("hint").textContent =
+    `posting as ${me} on #${postChannel()}  ·  Enter sends, Shift+Enter is a new line`;
+  $("box").placeholder = `Say something on #${postChannel()}…`;
 }
 
 function setStatus(s) {
@@ -320,8 +331,12 @@ async function load() {
   const r = await fetch("/api/state");
   const s = await r.json();
   msgs = s.messages || []; me = s.me; myChannel = s.channel;
-  $("hint").textContent = `posting as ${s.me} on #${s.channel}  ·  Enter sends, Shift+Enter is a new line`;
+  // A click on a notification arrives as ?channel=…, so the window opens where
+  // the message came from rather than on whatever the default happens to be.
+  const asked = new URLSearchParams(location.search).get("channel");
+  if (asked !== null && chanFilter === null) chanFilter = asked;
   refreshChannels();
+  updateHint();
   render(false);
   $("main").scrollTop = $("main").scrollHeight;
 }
@@ -355,7 +370,12 @@ for (const t of document.querySelectorAll(".tab")) {
 }
 
 $("q").oninput = e => { query = e.target.value; render(false); };
-$("channel").onchange = e => { chanFilter = e.target.value; render(false); $("main").scrollTop = $("main").scrollHeight; };
+$("channel").onchange = e => {
+  chanFilter = e.target.value;
+  updateHint();
+  render(false);
+  $("main").scrollTop = $("main").scrollHeight;
+};
 
 const box = $("box");
 box.addEventListener("input", () => { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 140) + "px"; });
@@ -369,7 +389,7 @@ async function sendMsg() {
   if (!text) return;
   $("send").disabled = true;
   try {
-    const r = await fetch("/api/post", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+    const r = await fetch("/api/post", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text, channel: postChannel()})});
     if (r.ok) { box.value = ""; box.style.height = "auto"; }
     else {
       const b = $("banner");

@@ -93,15 +93,20 @@ func watch() {
 		})
 }
 
-// send delivers one message. The server stamps seq, from, at and channel.
-func send(m Msg) error {
+// send delivers one message on $COLLAB_CHANNEL. The server stamps seq, from,
+// at and channel.
+func send(m Msg) error { return sendTo(channel(), m) }
+
+// sendTo is the same, on a channel you name — the window posts wherever it is
+// currently looking, which is not always the channel it was started on.
+func sendTo(ch string, m Msg) error {
 	c, err := net.Dial("tcp", addr())
 	if err != nil {
 		return err
 	}
 	defer c.Close()
 	enc := json.NewEncoder(c)
-	if err := enc.Encode(Hello{Name: name(), Channel: channel(), Mode: "post"}); err != nil {
+	if err := enc.Encode(Hello{Name: name(), Channel: ch, Mode: "post"}); err != nil {
 		return err
 	}
 	if err := enc.Encode(m); err != nil {

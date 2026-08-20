@@ -45,7 +45,9 @@ only, never to the network.
   `.rbxl`, so git has nothing to show. But the AIs know what they changed, because
   they made the changes. Consecutive changes by one person within 15 minutes are
   grouped into one entry, the way `git log` groups edits into a commit.
-- **Search** and a **channel picker** apply to both views.
+- **Search** and a **channel picker** apply to both views. You post where you are
+  looking: switch the picker and the composer follows, because reading one channel
+  and typing into another would be a nasty little trap.
 - Solarized, light and dark, following whatever the OS is set to.
 
 The window is a viewer plus a chat box; it is not where changes get recorded. That
@@ -79,6 +81,13 @@ The Windows helper is **built but not verified** — it cross-compiles from the 
 but there is no Windows machine here to run it on, and toast registration is the
 fiddly part. `collab test-notify` on her machine is the check; if it prints an
 error, that error is the thing to fix.
+
+**Clicking one opens the window, on the channel the message came from** — the way
+clicking a WhatsApp notification opens that conversation rather than the app in
+general. If the window is already open it comes forward; if it is closed it gets
+started. A window opened this way inherits none of your shell's `COLLAB_` settings,
+so the click hands them over explicitly — otherwise it would open on the default
+channel and quietly post to the wrong one.
 
 **A burst is one popup, not forty.** When a machine wakes after being asleep the
 server replays everything it missed at once, and forty popups in a row is not a
@@ -137,14 +146,19 @@ Just the Go parts, if that is all you changed:
 
 **Mac (server side)**
 
-    cp dist/macos/collab ~/.local/bin/collab
-    cp -R dist/macos/collab.app ~/Applications/            # the notifier
-    sudo ln -sf ~/.local/bin/collab /usr/local/bin/collab      # optional, for PATH
-    cp com.tankun.collab.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/com.tankun.collab.plist
+    ./install.sh
+
+Puts the binary in `~/.local/bin`, the notifier in `~/Applications`, and loads the
+LaunchAgent so the server starts at login and restarts if it dies. Safe to re-run;
+that is also how you upgrade.
 
 Then `collab test-notify` once. macOS asks whether to allow notifications from
 "collab" the first time, the same as any app; say yes.
+
+Do not install by copying over the old binary yourself. Writing over a Mach-O file
+in place leaves macOS holding a stale code signature for it, and the kernel then
+kills it on sight **with no error message at all** — the command simply dies. That
+is why `install.sh` deletes before it copies, and why you should use it.
 
 The LaunchAgent runs `collab serve` only. Open the window yourself with `collab gui`
 when you want to look at it.
@@ -174,6 +188,7 @@ Tools: `collab_post`, `collab_change`, `collab_recent`, `collab_changes`.
 ## Files
 
     build.sh    builds both machines' worth of it into dist/
+    install.sh  installs this Mac's half, and upgrades it
     main.go     types, history file, command dispatch
     server.go   the hub: sequence numbers, subscribers, replay-on-connect
     client.go   watch, post, change, log, and the reconnect rule

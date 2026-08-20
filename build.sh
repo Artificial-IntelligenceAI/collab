@@ -20,8 +20,10 @@ GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/windows/co
 cp dist/macos/collab ./collab            # for running out of the source tree
 
 echo "→ collab.app (Swift)"
+# Deliberately not copied into the source tree: two bundles sharing an
+# identifier confuses LaunchServices about which one a click should wake.
+# Running ./collab out of here finds the installed one in ~/Applications.
 notify/mac/build.sh "$PWD/dist/macos/collab.app" >/dev/null && echo "  built dist/macos/collab.app"
-cp -R dist/macos/collab.app ./collab.app 2>/dev/null || true
 
 echo "→ collab-notify.exe (C#)"
 if notify/windows/build.sh "$PWD/dist/windows" >/dev/null 2>&1; then

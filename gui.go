@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -85,9 +86,33 @@ func runGUI(args []string) {
 	fs.SetOutput(os.Stderr)
 	noOpen := fs.Bool("no-open", false, "don't open a browser, just print the address")
 	popups := fs.Bool("notify", false, "raise OS notifications too (`collab watch` already does this)")
+	// A window opened by clicking a notification is not started from your
+	// shell, so it inherits none of your COLLAB_ settings. The click passes
+	// them in instead, and they land in the environment so that posting from
+	// the window goes to the same place `collab post` would.
+	wantChan := fs.String("channel", "", "which channel this window is for (default $COLLAB_CHANNEL)")
+	wantName := fs.String("name", "", "who to post as (default $COLLAB_NAME)")
+	uri := fs.String("uri", "", "a collab://open?channel=… URL, as handed over by a Windows toast click")
 	if fs.Parse(args) != nil {
 		os.Exit(2)
 	}
+	if *uri != "" {
+		if u, err := url.Parse(*uri); err == nil {
+			if v := u.Query().Get("channel"); v != "" && *wantChan == "" {
+				*wantChan = v
+			}
+			if v := u.Query().Get("name"); v != "" && *wantName == "" {
+				*wantName = v
+			}
+		}
+	}
+	if *wantChan != "" {
+		os.Setenv("COLLAB_CHANNEL", *wantChan)
+	}
+	if *wantName != "" {
+		os.Setenv("COLLAB_NAME", *wantName)
+	}
+
 	g := &gui{subs: map[chan string]bool{}}
 	if *popups {
 		g.popup = newNotifier(name())
@@ -127,10 +152,15 @@ func runGUI(args []string) {
 			return
 		}
 		var body struct {
-			Text string `json:"text"`
+			Text    string `json:"text"`
+			Channel string `json:"channel"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		if err := send(Msg{Kind: KindChat, Text: body.Text}); err != nil {
+		ch := body.Channel
+		if ch == "" {
+			ch = channel()
+		}
+		if err := sendTo(ch, Msg{Kind: KindChat, Text: body.Text}); err != nil {
 			http.Error(w, err.Error(), 502)
 			return
 		}
@@ -175,20 +205,54 @@ func runGUI(args []string) {
 	})
 
 	port := env("COLLAB_GUI_PORT", "8788")
+	target := guiURL()
 	// 127.0.0.1 only: this window is yours, not the network's.
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
+		// Asking for the window twice should show you the window, not an
+		// error — clicking a notification does exactly that.
+		if guiIsRunning(target) {
+			fmt.Printf("collab window already open: %s\n", target)
+			if !*noOpen {
+				openBrowser(withChannel(target, channel()))
+			}
+			return
+		}
 		fmt.Fprintf(os.Stderr, "collab: cannot open the window on port %s — %v\n", port, err)
-		fmt.Fprintln(os.Stderr, "        (is `collab gui` already running? try COLLAB_GUI_PORT=8789 collab gui)")
+		fmt.Fprintln(os.Stderr, "        (something else is using it? try COLLAB_GUI_PORT=8789 collab gui)")
 		os.Exit(1)
 	}
-	url := "http://127.0.0.1:" + port
-	fmt.Printf("collab window: %s\n", url)
+	fmt.Printf("collab window: %s\n", target)
 	fmt.Printf("watching %s  (Ctrl-C to close)\n", addr())
 	if !*noOpen {
-		openBrowser(url)
+		openBrowser(withChannel(target, channel()))
 	}
 	http.Serve(ln, mux)
+}
+
+func guiURL() string { return "http://127.0.0.1:" + env("COLLAB_GUI_PORT", "8788") }
+
+// withChannel asks the window to open showing a particular channel — a click on
+// a notification should land where the message came from, not on the default.
+func withChannel(base, ch string) string {
+	if ch == "" {
+		return base
+	}
+	return base + "/?channel=" + url.QueryEscape(ch)
+}
+
+// guiIsRunning reports whether the thing holding the port is our own window.
+func guiIsRunning(url string) bool {
+	c := &http.Client{Timeout: 2 * time.Second}
+	r, err := c.Get(url + "/api/state")
+	if err != nil {
+		return false
+	}
+	defer r.Body.Close()
+	var st struct {
+		Channel *string `json:"channel"`
+	}
+	return r.StatusCode == 200 && json.NewDecoder(r.Body).Decode(&st) == nil && st.Channel != nil
 }
 
 func openBrowser(url string) {

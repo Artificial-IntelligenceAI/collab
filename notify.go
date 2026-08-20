@@ -56,10 +56,16 @@ func notifyEnabled() bool { return env("COLLAB_NOTIFY", "1") != "0" }
 // a broken notifier must not take the watcher down with it.
 var notifyWarned bool
 
-func raise(helper, title, subtitle, body string) {
+func raise(helper, title, subtitle, body, ch string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, helper, title, body, subtitle).CombinedOutput()
+	// The last two arguments are what a click needs: where the window is, and
+	// what to run to open it if it is not up yet.
+	self, _ := os.Executable()
+	if p, err := filepath.EvalSymlinks(self); err == nil {
+		self = p
+	}
+	out, err := exec.CommandContext(ctx, helper, title, body, subtitle, guiURL(), self, ch, name()).CombinedOutput()
 	if err != nil && !notifyWarned {
 		notifyWarned = true
 		fmt.Fprintf(os.Stderr, "* notifications are not working (%v) %s\n", err, strings.TrimSpace(string(out)))
@@ -147,10 +153,10 @@ func (n *notifier) flush(ms []Msg) {
 	case 1:
 		m := ms[0]
 		if m.kind() == KindChange {
-			raise(n.helper, m.From, fmt.Sprintf("%s · %s", m.Action, m.Target), ellipsis(m.Text, 180))
+			raise(n.helper, m.From, fmt.Sprintf("%s · %s", m.Action, m.Target), ellipsis(m.Text, 180), m.Channel)
 			return
 		}
-		raise(n.helper, m.From, "#"+m.Channel, ellipsis(m.Text, 180))
+		raise(n.helper, m.From, "#"+m.Channel, ellipsis(m.Text, 180), m.Channel)
 		return
 	}
 
@@ -176,7 +182,7 @@ func (n *notifier) flush(ms []Msg) {
 		sub = fmt.Sprintf("%d new on #%s · %d change%s", len(ms), ms[len(ms)-1].Channel, changes, plural(changes))
 	}
 	last := ms[len(ms)-1]
-	raise(n.helper, title, sub, ellipsis(last.From+": "+last.line(), 180))
+	raise(n.helper, title, sub, ellipsis(last.From+": "+last.line(), 180), last.Channel)
 }
 
 func plural(n int) string {
@@ -201,7 +207,7 @@ func testNotify() {
 		os.Exit(1)
 	}
 	fmt.Printf("using %s\n", h)
-	raise(h, "collab", "#"+channel()+" · test", "If you can see this, notifications work.")
+	raise(h, "collab", "#"+channel()+" · test", "If you can see this, notifications work.", channel())
 	if !notifyWarned {
 		fmt.Println("sent — it should be on screen now (and in Notification Centre)")
 	}

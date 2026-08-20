@@ -26,14 +26,18 @@ internal static class Program
             Console.Error.WriteLine("usage: collab-notify <title> [body] [subtitle]");
             return 2;
         }
-        string title    = args[0];
-        string body     = args.Length > 1 ? args[1] : "";
-        string subtitle = args.Length > 2 ? args[2] : "";
+        string title     = args[0];
+        string body      = args.Length > 1 ? args[1] : "";
+        string subtitle  = args.Length > 2 ? args[2] : "";
+        string windowUrl = args.Length > 3 ? args[3] : "";
+        string collabExe = args.Length > 4 ? args[4] : "";
+        string channel   = args.Length > 5 ? args[5] : "";
+        string name      = args.Length > 6 ? args[6] : "";
 
         try
         {
             Register();
-            Show(title, subtitle, body);
+            Show(title, subtitle, body, ClickTarget(windowUrl, collabExe, channel, name));
             return 0;
         }
         catch (Exception e)
@@ -45,10 +49,39 @@ internal static class Program
 
     // ── showing ────────────────────────────────────────────────
 
-    private static void Show(string title, string subtitle, string body)
+    // Where a click should go. Clicking a toast in an unpackaged app normally
+    // needs a registered COM activator; protocol activation avoids all of that,
+    // so collab registers a collab:// scheme pointing at `collab.exe gui` and
+    // the toast just asks Windows to open it. Falling back to the plain http
+    // address is worse — it shows a connection-refused page whenever the
+    // window happens to be closed — so it is only used if collab.exe is not
+    // where we expect it.
+    private static string ClickTarget(string windowUrl, string collabExe, string channel, string name)
+    {
+        if (collabExe.Length > 0 && File.Exists(collabExe))
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\collab");
+            key.SetValue("", "URL:collab", RegistryValueKind.String);
+            key.SetValue("URL Protocol", "", RegistryValueKind.String);
+            using var cmd = key.CreateSubKey(@"shell\open\command");
+            // %1 is the clicked URI; `collab gui -uri` reads the channel out of it,
+            // so a click lands on the channel the message came from.
+            cmd.SetValue("", "\"" + collabExe + "\" gui -uri \"%1\"", RegistryValueKind.String);
+            return "collab://open?channel=" + Uri.EscapeDataString(channel)
+                                    + "&name=" + Uri.EscapeDataString(name);
+        }
+        return channel.Length > 0
+            ? windowUrl + "/?channel=" + Uri.EscapeDataString(channel)
+            : windowUrl;
+    }
+
+    private static void Show(string title, string subtitle, string body, string launch)
     {
         var sb = new StringBuilder();
-        sb.Append("<toast><visual><binding template=\"ToastGeneric\">");
+        sb.Append("<toast");
+        if (launch.Length > 0)
+            sb.Append(" activationType=\"protocol\" launch=\"").Append(Escape(launch)).Append('"');
+        sb.Append("><visual><binding template=\"ToastGeneric\">");
         sb.Append("<text>").Append(Escape(title)).Append("</text>");
         if (subtitle.Length > 0) sb.Append("<text>").Append(Escape(subtitle)).Append("</text>");
         if (body.Length > 0)     sb.Append("<text>").Append(Escape(body)).Append("</text>");
