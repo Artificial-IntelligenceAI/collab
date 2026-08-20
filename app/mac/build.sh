@@ -3,7 +3,7 @@
 # Needs Xcode's Swift; nothing from the network.
 set -e
 cd "$(dirname "$0")"
-OUT="${1:-$PWD/../../dist/macos/Collab.app}"
+OUT="${1:-$PWD/../../dist.noindex/macos/Collab.app}"
 ICONS="$PWD"
 
 # The icon is generated from icon.swift, which is the source of truth for it.

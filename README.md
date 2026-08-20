@@ -156,7 +156,7 @@ and MCP only makes posting and recording typed tool calls.
 
 ## Build and install
 
-    ./build.sh      # everything, into dist/
+    ./build.sh      # everything, into dist.noindex/
     ./install.sh    # this Mac's half; also how you upgrade
 
 `build.sh` needs Rust and Xcode's Swift for the Mac half. The Windows half needs the
@@ -196,7 +196,7 @@ machine here. A native window for that side is still to do.
 
 ## Files
 
-    build.sh    builds both machines' worth of it into dist/
+    build.sh    builds both machines' worth of it into dist.noindex/
     install.sh  installs this Mac's half, and upgrades it
     com.tankun.collab.plist      LaunchAgent for the server
     com.tankun.collab.app.plist  LaunchAgent for the app

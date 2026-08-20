@@ -3,7 +3,8 @@
 # keeps the server running. Safe to re-run; this is also how you upgrade.
 set -e
 cd "$(dirname "$0")"
-[ -f dist/macos/collab ] || ./build.sh
+# Both halves, not just the binary — the app is the half that pops.
+[ -f dist.noindex/macos/collab ] && [ -d dist.noindex/macos/Collab.app ] || ./build.sh
 
 BIN="$HOME/.local/bin"
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -13,11 +14,11 @@ mkdir -p "$BIN" "$HOME/Applications" "$HOME/Library/LaunchAgents"
 # leaves macOS holding a stale code signature, and the kernel then kills the
 # result on exec with no error message at all — a miserable thing to diagnose.
 rm -f  "$BIN/collab"
-cp     dist/macos/collab "$BIN/collab"
+cp     dist.noindex/macos/collab "$BIN/collab"
 
 osascript -e 'quit app "collab"' 2>/dev/null || true
 rm -rf "$HOME/Applications/Collab.app"
-cp -R  dist/macos/Collab.app "$HOME/Applications/Collab.app"
+cp -R  dist.noindex/macos/Collab.app "$HOME/Applications/Collab.app"
 "$LSREG" -f "$HOME/Applications/Collab.app"
 
 # The server, and the app. The app matters as much: it is what raises the

@@ -3,7 +3,7 @@
 # Needs the .NET SDK:  brew install dotnet
 set -e
 cd "$(dirname "$0")"
-OUT="${1:-$PWD/../../dist/windows}"
+OUT="${1:-$PWD/../../dist.noindex/windows}"
 
 DOTNET="$(command -v dotnet || echo /opt/homebrew/opt/dotnet/bin/dotnet)"
 [ -x "$DOTNET" ] || { echo "collab: no dotnet — run: brew install dotnet" >&2; exit 1; }
