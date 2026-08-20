@@ -15,11 +15,12 @@ use base64::Engine as _;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 /// Set by `collab release keygen`, then pasted here and committed. A public key
 /// in a public repository is exactly where a public key belongs.
-pub const PUBLIC_KEY: &str = "";
+pub const PUBLIC_KEY: &str = "R9lWnR/OWXcy5XD/LZHrF3+MdnCwu2YKCHleVaTIgOc=";
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MANIFEST: &str = "collab-release.json";
@@ -65,13 +66,35 @@ pub fn keygen() {
     println!("carrying a new public key. If it leaks, do the same, urgently.");
 }
 
+/// Asks for the key, says so, and does not echo it. Reading stdin silently is
+/// indistinguishable from hanging, and a key echoed into the scrollback is a
+/// key written down somewhere you did not choose.
+fn read_secret() -> Result<String, String> {
+    use std::io::Write;
+    let tty = std::io::stdin().is_terminal();
+    if tty {
+        eprint!("paste the release private key (it will not be shown), then press Enter: ");
+        let _ = std::io::stderr().flush();
+        let _ = std::process::Command::new("stty").arg("-echo").status();
+    }
+    let mut s = String::new();
+    let read = std::io::stdin().read_line(&mut s);
+    if tty {
+        let _ = std::process::Command::new("stty").arg("echo").status();
+        eprintln!();
+    }
+    read.map_err(|e| e.to_string())?;
+    if s.trim().is_empty() {
+        return Err("no key given".into());
+    }
+    Ok(s)
+}
+
 /// "-" means read it from stdin. A key passed as an argument is visible in the
 /// process list for as long as the command runs, and in shell history for ever.
 fn read_private(key_b64: &str) -> Result<SigningKey, String> {
     let key_b64 = if key_b64.trim() == "-" {
-        let mut s = String::new();
-        std::io::stdin().read_line(&mut s).map_err(|e| e.to_string())?;
-        s
+        read_secret()?
     } else {
         key_b64.to_string()
     };
@@ -135,6 +158,41 @@ fn collect(root: &Path, dir: &Path, out: &mut BTreeMap<String, Artifact>) -> Res
         }
     }
     Ok(())
+}
+
+/// Checks a signed directory against the key compiled into this build, without
+/// publishing anything. Worth running once when a key is first set up: a public
+/// key that does not match the private one looks perfectly valid and refuses
+/// every release for ever, and the first you would know is the day you needed
+/// an update to work.
+pub fn verify_dir(dir: &Path) -> Result<Manifest, String> {
+    let key = verifying_key().ok_or_else(|| "this build carries no release key".to_string())?;
+    let body = std::fs::read(dir.join(MANIFEST))
+        .map_err(|_| format!("no {MANIFEST} in {}", dir.display()))?;
+    let sig_raw = std::fs::read_to_string(dir.join(format!("{MANIFEST}.sig")))
+        .map_err(|_| format!("no {MANIFEST}.sig in {}", dir.display()))?;
+    let sig_bytes: [u8; 64] = B64
+        .decode(sig_raw.trim())
+        .map_err(|_| "the signature is not valid base64".to_string())?
+        .try_into()
+        .map_err(|_| "the signature is the wrong length".to_string())?;
+    key.verify(&body, &Signature::from_bytes(&sig_bytes))
+        .map_err(|_| {
+            "signed, but NOT by the key this build carries — the public key and the private \
+key you signed with are not a pair"
+                .to_string()
+        })?;
+    let manifest: Manifest =
+        serde_json::from_slice(&body).map_err(|_| "the manifest is malformed".to_string())?;
+    // The signature covers the manifest; the manifest covers the files.
+    for (name, want) in &manifest.files {
+        let data = std::fs::read(dir.join(name))
+            .map_err(|_| format!("{name} is in the manifest but not in the folder"))?;
+        if data.len() as u64 != want.size || crate::files::hash_bytes(&data) != want.sha256 {
+            return Err(format!("{name} does not match the manifest"));
+        }
+    }
+    Ok(manifest)
 }
 
 // ───────────────────────────── taking one ─────────────────────────────

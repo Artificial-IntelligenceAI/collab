@@ -291,6 +291,16 @@ Nothing is checked or downloaded until both halves exist:
     update_url = https://…/latest      # in ~/.collab-config
     PUBLIC_KEY                         # in core/src/release.rs
 
+Check the pair once, when it is first set up:
+
+    mkdir -p /tmp/x && echo hi > /tmp/x/hi.txt
+    collab release sign /tmp/x -version 0.0.1 -key -
+    collab release verify /tmp/x
+
+A public key that does not match the private one is still a perfectly valid key. It
+would simply refuse every release for ever, and the first you would know is the day you
+needed an update to work.
+
 Making a release:
 
     collab release keygen              # once, ever — private key into your password manager

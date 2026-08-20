@@ -127,8 +127,22 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            Some("verify") => {
+                let dir = args.get(1).map(String::as_str).unwrap_or("");
+                match release::verify_dir(std::path::Path::new(dir)) {
+                    Ok(man) => {
+                        println!("verified: version {}, {} file(s), signed by the key this build trusts",
+                                 man.version, man.files.len());
+                    }
+                    Err(e) => {
+                        eprintln!("collab: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
             _ => {
                 eprintln!("usage: collab release keygen");
+                eprintln!("       collab release verify <dir>");
                 eprintln!("       collab release sign <dir> -version X.Y.Z -key <private>");
                 std::process::exit(2);
             }
