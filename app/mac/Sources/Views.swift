@@ -237,27 +237,83 @@ struct Who: View {
     }
 }
 
-/// A file in the stream: what it is, and a way to actually get it.
+/// A file in the stream. Deliberately a card rather than a line of text: an
+/// attachment is a thing you act on, and styling it like prose made the Save
+/// button read as part of the sentence.
 struct FileChip: View {
     let msg: Msg
     let file: FileRef
     @EnvironmentObject private var core: Core
-    @State private var state: String?
+    @State private var savedTo: String?
+    @State private var failed: String?
+    @State private var busy = false
+
+    private var icon: String {
+        switch (file.name as NSString).pathExtension.lowercased() {
+        case "png", "jpg", "jpeg", "gif", "heic", "webp": return "photo"
+        case "lua", "rs", "swift", "cs", "go", "js", "ts", "py", "json", "toml": return "curlybraces"
+        case "rbxl", "rbxm", "zip", "tar", "gz": return "shippingbox"
+        case "md", "txt": return "doc.text"
+        default: return "doc"
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "paperclip").foregroundStyle(Sol.fgDim)
-            Text(file.name).font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
-            Text(file.readable).font(.system(size: 11)).foregroundStyle(Sol.fgDim)
-            if !msg.text.isEmpty {
-                Text("— " + msg.text).foregroundStyle(Sol.fgEm)
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(Sol.cyan)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(file.name)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Sol.fgEm)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(failed == nil ? Sol.fgDim : Sol.red)
+                    .lineLimit(2)
             }
-            Button(state ?? "Save") {
-                do { state = "Saved"; _ = try core.fetchFile(msg) }
-                catch { state = "Failed" }
+
+            Spacer(minLength: 10)
+
+            Button(action: act) {
+                Label(savedTo == nil ? "Save" : "Show", systemImage: savedTo == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .medium))
             }
-            .buttonStyle(.borderless).font(.system(size: 11))
-            .disabled(state != nil)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(savedTo == nil ? Sol.blue : Sol.green)
+            .disabled(busy)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: 460, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Sol.bgAlt))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Sol.rule, lineWidth: 1))
+    }
+
+    private var subtitle: String {
+        if let failed { return failed }
+        if let savedTo { return "Saved to \((savedTo as NSString).abbreviatingWithTildeInPath)" }
+        return file.readable + (msg.text.isEmpty ? "" : " · \(msg.text)")
+    }
+
+    /// First press fetches it; afterwards the button shows you where it went,
+    /// which is the question you actually have once it has downloaded.
+    private func act() {
+        if let savedTo {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: savedTo)])
+            return
+        }
+        busy = true
+        defer { busy = false }
+        do {
+            let out = try core.fetchFile(msg)
+            savedTo = out.replacingOccurrences(of: "saved ", with: "")
+            failed = nil
+        } catch {
+            failed = "Could not save — \(error.localizedDescription)"
         }
     }
 }
@@ -310,7 +366,7 @@ struct ChatList: View {
                 .frame(width: 54, alignment: .trailing)
             Who(name: m.who, isAI: m.isAI, machine: m.machine)
             if m.isFile, let f = m.file {
-                FileChip(msg: m, file: f)
+                FileChip(msg: m, file: f).padding(.vertical, 2)
             } else if m.isChange {
                 ActionBadge(action: m.action ?? "edited")
                 Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
