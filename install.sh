@@ -25,7 +25,9 @@ cp -R  dist.noindex/macos/Collab.app "$HOME/Applications/Collab.app"
 # popups, so a machine where only the server came back at login is a machine
 # that receives messages silently.
 for label in com.tankun.collab com.tankun.collab.app; do
-  cp "$label.plist" "$HOME/Library/LaunchAgents/"
+  # launchd does not expand variables in ProgramArguments, so the path is
+  # substituted here rather than shipped pointing at one particular machine.
+  sed "s|__HOME__|$HOME|g" "$label.plist" > "$HOME/Library/LaunchAgents/$label.plist"
   launchctl bootout   "gui/$(id -u)/$label" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"
 done

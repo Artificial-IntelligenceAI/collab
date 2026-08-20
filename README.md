@@ -45,7 +45,7 @@ else's. *Delete* closes the room: the messages go from the server and the key is
 dropped, so anyone still holding it simply cannot connect any more. Only the machine
 that made a channel may delete it, and the server checks that itself rather than
 taking the asker's word for it — but names in collab are self-asserted throughout, so
-this stops you deleting the other person's channel by accident, not a determined holder of
+this stops you deleting someone else's channel by accident, not a determined holder of
 the key. Deleting also records a floor for the sequence numbers, because handing out a
 number that had been used before would make a watcher's "resume from #N" skip real
 messages.

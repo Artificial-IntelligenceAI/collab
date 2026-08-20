@@ -15,3 +15,6 @@ notify/windows/bin/
 notify/windows/obj/
 notify/windows/out/
 release.noindex/
+
+# the original brief; it describes real people
+v2-prompt.md

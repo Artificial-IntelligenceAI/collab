@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>              <string>com.tankun.collab</string>
   <key>ProgramArguments</key>   <array>
-                                  <string>/Users/ts/.local/bin/collab</string>
+                                  <string>__HOME__/.local/bin/collab</string>
                                   <string>serve</string>
                                 </array>
   <key>RunAtLoad</key>          <true/>
   <key>KeepAlive</key>          <true/>
-  <key>StandardOutPath</key>    <string>/Users/ts/.collab-server.log</string>
-  <key>StandardErrorPath</key>  <string>/Users/ts/.collab-server.log</string>
+  <key>StandardOutPath</key>    <string>__HOME__/.collab-server.log</string>
+  <key>StandardErrorPath</key>  <string>__HOME__/.collab-server.log</string>
 </dict>
 </plist>
