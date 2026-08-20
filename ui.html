@@ -1,0 +1,383 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>collab</title>
+<style>
+/* Solarized. Light is the default; the dark block below swaps the eight greys
+   and leaves the accents alone, which is the whole point of the palette. */
+:root {
+  --base03:#002b36; --base02:#073642; --base01:#586e75; --base00:#657b83;
+  --base0:#839496;  --base1:#93a1a1;  --base2:#eee8d5;  --base3:#fdf6e3;
+  --yellow:#b58900; --orange:#cb4b16; --red:#dc322f; --magenta:#d33682;
+  --violet:#6c71c4; --blue:#268bd2;  --cyan:#2aa198; --green:#859900;
+
+  --bg:var(--base3); --bg-alt:var(--base2); --fg:var(--base00);
+  --fg-em:var(--base01); --fg-dim:var(--base1); --rule:rgba(88,110,117,.18);
+  --shadow:rgba(88,110,117,.13);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:var(--base03); --bg-alt:var(--base02); --fg:var(--base0);
+    --fg-em:var(--base1); --fg-dim:var(--base01); --rule:rgba(147,161,161,.16);
+    --shadow:rgba(0,0,0,.35);
+  }
+}
+* { box-sizing:border-box; }
+html,body { height:100%; }
+body {
+  margin:0; background:var(--bg); color:var(--fg);
+  font:14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+code, .mono { font-family:ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+/* ── header ─────────────────────────────────────────────── */
+header { border-bottom:1px solid var(--rule); background:var(--bg-alt); flex:none; }
+.row { display:flex; align-items:center; gap:12px; padding:9px 14px; }
+.brand { font-weight:600; color:var(--fg-em); letter-spacing:.3px; margin-right:2px; }
+.brand b { color:var(--blue); }
+.spacer { flex:1; }
+
+.tabs { display:flex; gap:2px; }
+.tab {
+  border:0; background:transparent; color:var(--fg); cursor:pointer;
+  padding:5px 13px; border-radius:6px; font:inherit; font-weight:500;
+}
+.tab:hover { background:var(--shadow); }
+.tab[aria-selected="true"] { background:var(--bg); color:var(--blue); box-shadow:0 1px 2px var(--shadow); }
+
+select, input[type=search], input[type=text], textarea, button.send {
+  font:inherit; color:var(--fg); background:var(--bg);
+  border:1px solid var(--rule); border-radius:6px; padding:5px 9px;
+}
+select:focus, input:focus, textarea:focus { outline:2px solid var(--blue); outline-offset:-1px; }
+input[type=search] { width:230px; }
+
+.pill { display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--fg-dim); }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex:none; }
+.pill.down .dot { background:var(--red); animation:pulse 1.1s ease-in-out infinite; }
+.pill.down { color:var(--red); }
+@keyframes pulse { 50% { opacity:.25; } }
+
+/* Decision #2 lives here too: a dead wire never looks like a quiet channel. */
+.banner {
+  display:none; padding:8px 14px; font-size:13px;
+  background:var(--red); color:var(--base3); font-weight:500;
+}
+.banner.on { display:block; }
+.banner.ok { background:var(--green); }
+@media (prefers-color-scheme: dark) { .banner { color:var(--base03); } }
+
+/* ── panes ──────────────────────────────────────────────── */
+main { flex:1; overflow-y:auto; padding:14px 0 18px; }
+.pane { display:none; }
+.pane.on { display:block; }
+.empty { color:var(--fg-dim); text-align:center; padding:52px 20px; font-style:italic; }
+
+/* chat */
+.msg { display:flex; gap:10px; padding:3px 16px; align-items:baseline; }
+.msg:hover { background:var(--bg-alt); }
+.when { color:var(--fg-dim); font-size:11.5px; flex:none; width:58px; text-align:right;
+        padding-top:1px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.who  { flex:none; font-weight:600; }
+.what { flex:1; white-space:pre-wrap; word-break:break-word; min-width:0; }
+.seq  { color:var(--fg-dim); font-size:11px; flex:none; opacity:0; }
+.msg:hover .seq { opacity:.75; }
+.daysep {
+  display:flex; align-items:center; gap:10px; margin:14px 16px 8px;
+  color:var(--fg-dim); font-size:11.5px; text-transform:uppercase; letter-spacing:.7px;
+}
+.daysep::before, .daysep::after { content:""; height:1px; background:var(--rule); flex:1; }
+
+/* a change, seen inside the chat stream */
+.msg.change .what { color:var(--fg-em); }
+.badge {
+  display:inline-block; font-size:11px; font-weight:700; letter-spacing:.4px;
+  text-transform:uppercase; padding:1px 6px; border-radius:4px; margin-right:7px;
+  color:var(--bg); vertical-align:1px;
+}
+.a-added   { background:var(--green); }
+.a-edited  { background:var(--blue); }
+.a-removed { background:var(--red); }
+.a-renamed { background:var(--violet); }
+.target { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--cyan); }
+
+/* changes view — grouped the way git log groups by commit */
+.commit { margin:0 16px 16px; border-left:2px solid var(--rule); padding-left:14px; position:relative; }
+.commit::before {
+  content:""; position:absolute; left:-6px; top:6px; width:10px; height:10px;
+  border-radius:50%; background:var(--bg); border:2px solid var(--blue);
+}
+.commit-head { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:5px; }
+.commit-head .who { font-size:14px; }
+.commit-head .meta { color:var(--fg-dim); font-size:12px; }
+.change { display:flex; gap:8px; align-items:baseline; padding:2px 0; }
+.change .badge { min-width:66px; text-align:center; margin-right:0; }
+.change .summary { color:var(--fg); }
+.change:hover { background:var(--bg-alt); }
+
+/* ── composer ───────────────────────────────────────────── */
+footer { flex:none; border-top:1px solid var(--rule); background:var(--bg-alt); padding:9px 14px; }
+footer.hide { display:none; }
+.composer { display:flex; gap:9px; align-items:flex-end; }
+textarea {
+  flex:1; resize:none; min-height:34px; max-height:140px; line-height:1.45; padding:7px 10px;
+}
+button.send {
+  background:var(--blue); color:var(--base3); border-color:transparent;
+  font-weight:600; cursor:pointer; padding:7px 16px;
+}
+button.send:hover { filter:brightness(1.08); }
+button.send:disabled { opacity:.45; cursor:default; filter:none; }
+.hint { color:var(--fg-dim); font-size:11.5px; padding:5px 2px 0; }
+</style>
+
+<header>
+  <div class="row">
+    <span class="brand"><b>collab</b></span>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true"  data-pane="chat">Chat</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="changes">Changes</button>
+    </div>
+    <span class="spacer"></span>
+    <select id="channel" title="Which channel"></select>
+    <input type="search" id="q" placeholder="Search…" autocomplete="off">
+    <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">connecting…</span></span>
+  </div>
+  <div class="banner" id="banner"></div>
+</header>
+
+<main id="main">
+  <div class="pane on" id="pane-chat"></div>
+  <div class="pane" id="pane-changes"></div>
+</main>
+
+<footer id="footer">
+  <div class="composer">
+    <textarea id="box" rows="1" placeholder="Say something to the other session…"></textarea>
+    <button class="send" id="send">Send</button>
+  </div>
+  <div class="hint" id="hint"></div>
+</footer>
+
+<script>
+// ── state ───────────────────────────────────────────────────
+let msgs = [], me = "", myChannel = "", pane = "chat", chanFilter = null, query = "";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const kindOf = m => m.kind === "change" ? "change" : "chat";
+
+// One stable colour per person, so you can tell who's who at a glance.
+const NAME_COLORS = ["--blue","--magenta","--cyan","--violet","--orange","--green","--yellow"];
+function colorFor(n) {
+  let h = 0;
+  for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `var(${NAME_COLORS[h % NAME_COLORS.length]})`;
+}
+
+const d = m => new Date(m.at);
+const hhmm = t => t.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+const dayKey = t => t.toDateString();
+function dayLabel(t) {
+  const today = new Date(), y = new Date(Date.now() - 864e5);
+  if (dayKey(t) === dayKey(today)) return "Today";
+  if (dayKey(t) === dayKey(y)) return "Yesterday";
+  return t.toLocaleDateString([], {weekday:"short", month:"short", day:"numeric"});
+}
+
+// ── filtering ───────────────────────────────────────────────
+function visible() {
+  const q = query.trim().toLowerCase();
+  return msgs.filter(m => {
+    if (chanFilter && m.channel !== chanFilter) return false;
+    if (!q) return true;
+    return [m.text, m.from, m.target, m.action, m.channel]
+      .some(v => v && String(v).toLowerCase().includes(q));
+  });
+}
+
+function badge(m) {
+  const a = esc(m.action || "edited");
+  return `<span class="badge a-${a}">${a}</span>`;
+}
+
+// ── chat view: everything, in order ─────────────────────────
+function renderChat() {
+  const list = visible();
+  if (!list.length) { $("pane-chat").innerHTML = emptyNote(); return; }
+  let html = "", day = "";
+  for (const m of list) {
+    const t = d(m), k = dayKey(t);
+    if (k !== day) { day = k; html += `<div class="daysep">${esc(dayLabel(t))}</div>`; }
+    const body = kindOf(m) === "change"
+      ? `${badge(m)}${m.target ? `<span class="target">${esc(m.target)}</span> — ` : ""}${esc(m.text)}`
+      : esc(m.text);
+    html += `<div class="msg ${kindOf(m)}">`
+          +   `<span class="when">${hhmm(t)}</span>`
+          +   `<span class="who" style="color:${colorFor(m.from)}">${esc(m.from)}</span>`
+          +   `<span class="what">${body}</span>`
+          +   `<span class="seq mono">#${m.seq}</span>`
+          + `</div>`;
+  }
+  $("pane-chat").innerHTML = html;
+}
+
+// ── changes view: a git log for a project that can't use git ─
+// Consecutive changes by the same person, close together in time, are one entry
+// — the way git log groups a handful of edits into one commit.
+const GROUP_GAP_MS = 15 * 60 * 1000;
+
+function renderChanges() {
+  const list = visible().filter(m => kindOf(m) === "change");
+  if (!list.length) { $("pane-changes").innerHTML = emptyNote(true); return; }
+
+  const groups = [];
+  for (const m of list) {
+    const g = groups[groups.length - 1];
+    if (g && g.from === m.from && d(m) - g.last <= GROUP_GAP_MS) {
+      g.items.push(m); g.last = d(m);
+    } else {
+      groups.push({from: m.from, first: d(m), last: d(m), items: [m]});
+    }
+  }
+
+  let html = "";
+  for (const g of groups.reverse()) {              // newest first, like git log
+    const span = dayLabel(g.first) + " " + hhmm(g.first)
+      + (hhmm(g.first) !== hhmm(g.last) ? "–" + hhmm(g.last) : "");
+    const n = g.items.length;
+    html += `<div class="commit">`
+          +   `<div class="commit-head">`
+          +     `<span class="who" style="color:${colorFor(g.from)}">${esc(g.from)}</span>`
+          +     `<span class="meta">${esc(span)} · ${n} change${n > 1 ? "s" : ""} · #${g.items[0].seq}</span>`
+          +   `</div>`;
+    for (const m of g.items) {
+      html += `<div class="change">${badge(m)}`
+            +   (m.target ? `<span class="target">${esc(m.target)}</span>` : "")
+            +   `<span class="summary">${esc(m.text)}</span>`
+            + `</div>`;
+    }
+    html += `</div>`;
+  }
+  $("pane-changes").innerHTML = html;
+}
+
+function emptyNote(changesView) {
+  if (query.trim()) return `<div class="empty">Nothing matches “${esc(query)}”.</div>`;
+  return changesView
+    ? `<div class="empty">No changes recorded yet.<br>They appear here when a session runs <code>collab change</code>.</div>`
+    : `<div class="empty">Nothing on this channel yet.</div>`;
+}
+
+// ── plumbing ────────────────────────────────────────────────
+function nearBottom() {
+  const el = $("main");
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+}
+
+function render(keepScroll) {
+  const stick = keepScroll && pane === "chat" ? nearBottom() : false;
+  if (pane === "chat") renderChat(); else renderChanges();
+  if (stick) $("main").scrollTop = $("main").scrollHeight;
+}
+
+// chanFilter is "" for every channel, or a channel name. null only means
+// "the page has not chosen yet" — otherwise picking "all channels" would snap
+// back to your own the moment a message arrived.
+function refreshChannels() {
+  const seen = [...new Set([myChannel, ...msgs.map(m => m.channel)].filter(Boolean))].sort();
+  if (chanFilter === null) chanFilter = myChannel || "";
+  else if (chanFilter !== "" && !seen.includes(chanFilter)) chanFilter = "";
+  const sel = $("channel");
+  sel.innerHTML = `<option value="">all channels</option>`
+    + seen.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  sel.value = chanFilter;
+}
+
+function setStatus(s) {
+  const pill = $("pill"), b = $("banner");
+  if (s.connected) {
+    pill.classList.remove("down");
+    $("pilltext").textContent = "connected · " + s.addr;
+    if (b.dataset.wasDown === "1") {
+      b.className = "banner on ok";
+      b.textContent = `reconnected to ${s.addr} — resuming from #${s.from}`;
+      setTimeout(() => b.className = "banner", 4000);
+    } else {
+      b.className = "banner";
+    }
+    b.dataset.wasDown = "0";
+  } else {
+    pill.classList.add("down");
+    $("pilltext").textContent = "disconnected";
+    b.className = "banner on";
+    b.textContent = `DISCONNECTED from ${s.addr} — retrying. Messages sent meanwhile will arrive when it comes back.`;
+    b.dataset.wasDown = "1";
+  }
+}
+
+async function load() {
+  const r = await fetch("/api/state");
+  const s = await r.json();
+  msgs = s.messages || []; me = s.me; myChannel = s.channel;
+  $("hint").textContent = `posting as ${s.me} on #${s.channel}  ·  Enter sends, Shift+Enter is a new line`;
+  refreshChannels();
+  render(false);
+  $("main").scrollTop = $("main").scrollHeight;
+}
+
+function connect() {
+  const es = new EventSource("/api/stream");
+  es.addEventListener("status", e => setStatus(JSON.parse(e.data)));
+  es.addEventListener("msg", e => {
+    const m = JSON.parse(e.data);
+    if (msgs.some(x => x.seq === m.seq)) return;   // resume must never duplicate
+    msgs.push(m);
+    refreshChannels();
+    render(true);
+  });
+  es.onerror = () => {                             // the page lost the local server
+    $("pill").classList.add("down");
+    $("pilltext").textContent = "window disconnected";
+  };
+}
+
+// tabs
+for (const t of document.querySelectorAll(".tab")) {
+  t.onclick = () => {
+    pane = t.dataset.pane;
+    document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
+    document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + pane));
+    $("footer").classList.toggle("hide", pane !== "chat");
+    render(false);
+    if (pane === "chat") $("main").scrollTop = $("main").scrollHeight;
+  };
+}
+
+$("q").oninput = e => { query = e.target.value; render(false); };
+$("channel").onchange = e => { chanFilter = e.target.value; render(false); $("main").scrollTop = $("main").scrollHeight; };
+
+const box = $("box");
+box.addEventListener("input", () => { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 140) + "px"; });
+box.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
+$("send").onclick = sendMsg;
+
+async function sendMsg() {
+  const text = box.value.trim();
+  if (!text) return;
+  $("send").disabled = true;
+  try {
+    const r = await fetch("/api/post", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+    if (r.ok) { box.value = ""; box.style.height = "auto"; }
+    else {
+      const b = $("banner");
+      b.className = "banner on";
+      b.textContent = "Could not send — the server is not reachable. Your text is still in the box.";
+    }
+  } finally { $("send").disabled = false; box.focus(); }
+}
+
+load().then(connect);
+</script>

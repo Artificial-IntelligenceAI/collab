@@ -1,13 +1,17 @@
-// collab — a small message channel between two machines on the same network,
-// so two AI sessions can tell each other what they just did.
+// collab — a message channel between two machines on the same network, so two AI
+// sessions can tell each other what they just did.
 //
 //	collab serve                 run the server (one machine only)
 //	collab watch                 stream messages as they arrive
-//	collab post "message"        send one message
+//	collab post "message"        send a chat message
+//	collab change ...            record a structured change
 //	collab log                   print history
+//	collab gui                   open the window (chat + changes)
 //	collab mcp                   run as an MCP server (tools, not notifications)
 //
-// Env: COLLAB_HOST, COLLAB_PORT (8787), COLLAB_NAME, COLLAB_CHANNEL (general)
+// Env: COLLAB_HOST, COLLAB_PORT (8787), COLLAB_NAME, COLLAB_CHANNEL (general),
+//
+//	COLLAB_GUI_PORT (8788)
 //
 // Every message carries a sequence number, and a watcher remembers the last one
 // it saw. On reconnect it asks to resume from there, so a message is never
@@ -18,28 +22,59 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
+
+// A message is one of two kinds. Both share the sequence numbering and the same
+// channel, so nothing is lost either way — but a change is structured, because a
+// change record inferred from prose is a guess wearing a fact's clothes.
+const (
+	KindChat   = "chat"
+	KindChange = "change"
+)
+
+// What a change did. Anything else is rejected at the door.
+var actions = []string{"added", "edited", "removed", "renamed"}
 
 type Msg struct {
 	Seq     int64  `json:"seq"`
 	Channel string `json:"channel"`
 	From    string `json:"from"`
 	At      string `json:"at"`
-	Text    string `json:"text"`
+	Kind    string `json:"kind,omitempty"` // "" (old records) means chat
+	Text    string `json:"text"`           // chat body, or the change's one-line summary
+
+	// change only
+	Action string `json:"action,omitempty"` // added | edited | removed | renamed
+	Target string `json:"target,omitempty"` // which script or instance
+}
+
+func (m Msg) kind() string {
+	if m.Kind == KindChange {
+		return KindChange
+	}
+	return KindChat // records written by v1 have no kind at all
+}
+
+// One line, for a terminal — this is what Monitor ends up showing.
+func (m Msg) line() string {
+	if m.kind() == KindChange {
+		if m.Target != "" {
+			return fmt.Sprintf("[%s] %s — %s", m.Action, m.Target, m.Text)
+		}
+		return fmt.Sprintf("[%s] %s", m.Action, m.Text)
+	}
+	return m.Text
 }
 
 type Hello struct {
 	Name    string `json:"name"`
 	Channel string `json:"channel"`
 	Since   int64  `json:"since"`
-	Mode    string `json:"mode"` // "watch" or "post"
+	Mode    string `json:"mode"` // "watch" | "post" | "fetch"
 }
 
 func env(k, def string) string {
@@ -106,205 +141,30 @@ func readHistory() []Msg {
 	return out
 }
 
-// ───────────────────────────── server ─────────────────────────────
-
-type sub struct {
-	ch      chan Msg
-	channel string
+func filterHistory(in []Msg, ch string, since int64) []Msg {
+	var out []Msg
+	for _, m := range in {
+		if m.Seq > since && (ch == "" || m.Channel == ch) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
-type hub struct {
-	mu   sync.Mutex
-	subs map[*sub]bool
-	seq  int64
-}
+// ───────────────────────────── entry ─────────────────────────────
 
-func (h *hub) publish(m Msg) {
-	h.mu.Lock()
-	h.seq++
-	m.Seq = h.seq
-	subs := make([]*sub, 0, len(h.subs))
-	for s := range h.subs {
-		subs = append(subs, s)
-	}
-	h.mu.Unlock()
-
-	appendHistory(m)
-	for _, s := range subs {
-		if s.channel != "" && s.channel != m.Channel {
-			continue
-		}
-		select {
-		case s.ch <- m:
-		default: // a stalled reader must not block everyone else
-		}
-	}
-	fmt.Printf("[%s] #%d %s: %s\n", m.Channel, m.Seq, m.From, m.Text)
-}
-
-func serve() {
-	h := &hub{subs: map[*sub]bool{}}
-	for _, m := range readHistory() { // resume numbering across restarts
-		if m.Seq > h.seq {
-			h.seq = m.Seq
-		}
-	}
-
-	ln, err := net.Listen("tcp", ":"+env("COLLAB_PORT", "8787"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "collab: %v\n", err)
-		os.Exit(1)
-	}
-	hn, _ := os.Hostname()
-	fmt.Printf("collab server on %s (port %s), resuming at #%d\n", hn, env("COLLAB_PORT", "8787"), h.seq)
-	fmt.Printf("others use:  COLLAB_HOST=%s collab watch\n", hn)
-
-	for {
-		c, err := ln.Accept()
-		if err != nil {
-			continue
-		}
-		go handle(h, c)
-	}
-}
-
-func handle(h *hub, c net.Conn) {
-	defer c.Close()
-	if t, ok := c.(*net.TCPConn); ok {
-		t.SetKeepAlive(true)
-		t.SetKeepAlivePeriod(15 * time.Second)
-	}
-	r := bufio.NewScanner(c)
-	r.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	if !r.Scan() {
-		return
-	}
-	var hello Hello
-	if err := json.Unmarshal(r.Bytes(), &hello); err != nil {
-		return
-	}
-
-	enc := json.NewEncoder(c)
-
-	if hello.Mode == "watch" {
-		// Everything the watcher missed, then live. No gap, by construction.
-		for _, m := range readHistory() {
-			if m.Seq > hello.Since && (hello.Channel == "" || m.Channel == hello.Channel) {
-				enc.Encode(m)
-			}
-		}
-		s := &sub{ch: make(chan Msg, 256), channel: hello.Channel}
-		h.mu.Lock()
-		h.subs[s] = true
-		h.mu.Unlock()
-		defer func() { h.mu.Lock(); delete(h.subs, s); h.mu.Unlock() }()
-
-		done := make(chan struct{})
-		go func() {
-			for r.Scan() {
-			}
-			close(done)
-		}() // notice the peer leaving
-		for {
-			select {
-			case m := <-s.ch:
-				if enc.Encode(m) != nil {
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}
-
-	// post: every remaining line is a message
-	for r.Scan() {
-		line := strings.TrimSpace(r.Text())
-		if line == "" {
-			continue
-		}
-		h.publish(Msg{Channel: hello.Channel, From: hello.Name, At: time.Now().Format(time.RFC3339), Text: line})
-	}
-}
-
-// ───────────────────────────── client ─────────────────────────────
-
-func lastSeen() int64 {
-	b, err := os.ReadFile(seenPath)
-	if err != nil {
-		return 0
-	}
-	n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	return n
-}
-
-func saveSeen(n int64) { os.WriteFile(seenPath, []byte(strconv.FormatInt(n, 10)), 0o644) }
-
-func watch() {
-	announced := false
-	for {
-		c, err := net.Dial("tcp", addr())
-		if err != nil {
-			if !announced {
-				// A dead channel must never be mistaken for a quiet one.
-				fmt.Printf("* DISCONNECTED from %s — retrying\n", addr())
-				announced = true
-			}
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		if announced {
-			fmt.Printf("* reconnected to %s, resuming from #%d\n", addr(), lastSeen())
-			announced = false
-		}
-		json.NewEncoder(c).Encode(Hello{Name: name(), Channel: channel(), Since: lastSeen(), Mode: "watch"})
-
-		sc := bufio.NewScanner(c)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for sc.Scan() {
-			var m Msg
-			if json.Unmarshal(sc.Bytes(), &m) != nil {
-				continue
-			}
-			fmt.Printf("[%s] %s: %s\n", m.Channel, m.From, m.Text)
-			saveSeen(m.Seq)
-		}
-		c.Close()
-		if !announced {
-			fmt.Printf("* DISCONNECTED from %s — retrying\n", addr())
-			announced = true
-		}
-		time.Sleep(2 * time.Second)
-	}
-}
-
-func post(text string) {
-	if strings.TrimSpace(text) == "" {
-		fmt.Fprintln(os.Stderr, `usage: collab post "message"`)
-		os.Exit(2)
-	}
-	c, err := net.Dial("tcp", addr())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "collab: cannot reach %s — %v\n", addr(), err)
-		os.Exit(1)
-	}
-	defer c.Close()
-	json.NewEncoder(c).Encode(Hello{Name: name(), Channel: channel(), Mode: "post"})
-	fmt.Fprintln(c, strings.ReplaceAll(text, "\n", " "))
-	time.Sleep(200 * time.Millisecond)
-}
-
-func showLog() {
-	for _, m := range readHistory() {
-		if m.Channel == channel() || channel() == "" {
-			fmt.Printf("#%-4d [%s] %s: %s\n", m.Seq, m.At[11:16], m.From, m.Text)
-		}
-	}
-}
+const usage = `usage:
+  collab serve                          run the server (one machine only)
+  collab watch                          stream messages — this is what Monitor runs
+  collab post "message"                 send a chat message
+  collab change -action edited -target "ServerScriptService/Shop" "what changed"
+  collab log [-changes]                 history
+  collab gui [-no-open]                 open the window
+  collab mcp                            run as an MCP server`
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, `usage: collab serve | watch | post "msg" | log | mcp`)
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -314,12 +174,16 @@ func main() {
 		watch()
 	case "post":
 		post(strings.Join(os.Args[2:], " "))
+	case "change":
+		changeCmd(os.Args[2:])
 	case "log":
-		showLog()
+		showLog(os.Args[2:])
+	case "gui":
+		runGUI(os.Args[2:])
 	case "mcp":
 		runMCP()
 	default:
-		fmt.Fprintln(os.Stderr, `usage: collab serve | watch | post "msg" | log | mcp`)
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
 }
