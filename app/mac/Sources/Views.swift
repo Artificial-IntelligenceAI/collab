@@ -4,6 +4,7 @@ enum Pane: String, CaseIterable { case chat = "Chat", changes = "Changes" }
 
 struct ContentView: View {
     @ObservedObject var core: Core
+    @ObservedObject private var state = AppState.shared
     @StateObject private var store = ChannelStore()
     @State private var showChannels = false
     @State private var pane: Pane = .chat
@@ -11,6 +12,8 @@ struct ContentView: View {
     @State private var channel: String?
     @State private var draft = ""
     @State private var sendError: String?
+    @State private var note: String?
+    @State private var pickedInitial = false
 
     /// You post where you are looking. Reading one channel and typing into
     /// another would be a nasty little trap.
@@ -52,7 +55,23 @@ struct ContentView: View {
             if pane == .chat { composer }
         }
         .background(Sol.bg)
-        .onAppear { if channel == nil { channel = core.homeChannel } }
+        .onAppear { adoptHomeChannel() }
+        .onChange(of: core.settingsLoaded) { _, _ in adoptHomeChannel() }
+        .onChange(of: state.requestedChannel) { _, wanted in
+            guard let wanted, !wanted.isEmpty else { return }
+            channel = wanted
+            pickedInitial = true
+            state.requestedChannel = nil
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            for p in providers {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url, url.isFileURL else { return }
+                    Task { @MainActor in send(file: url.path) }
+                }
+            }
+            return true
+        }
         .sheet(isPresented: $showChannels) {
             ChannelsView(store: store) { core.restartWatcher() }
         }
@@ -80,6 +99,11 @@ struct ContentView: View {
 
             // Making a channel is a person's job, so it lives behind a button
             // and not behind a tool.
+            Button { pickFile() } label: {
+                Image(systemName: "paperclip")
+            }
+            .help("Send a file to #\(postChannel) — or drop one on the window")
+
             Button {
                 store.reload()
                 showChannels = true
@@ -116,13 +140,46 @@ struct ContentView: View {
                         .tint(Sol.blue)
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                Text(sendError ?? "posting as \(core.me) on #\(postChannel)")
+                Text(sendError ?? note ?? "posting as \(core.me) on #\(postChannel)")
                     .font(.system(size: 11))
-                    .foregroundStyle(sendError == nil ? Sol.fgDim : Sol.red)
+                    .foregroundStyle(sendError != nil ? Sol.red : (note != nil ? Sol.green : Sol.fgDim))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .background(Sol.bgAlt)
+        }
+    }
+
+    /// Waits for the real settings before choosing what to show. Doing this on
+    /// appear alone captured the placeholder channel and stuck to it.
+    private func adoptHomeChannel() {
+        guard !pickedInitial, core.settingsLoaded else { return }
+        channel = core.homeChannel
+        pickedInitial = true
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Send"
+        if panel.runModal() == .OK, let url = panel.url {
+            send(file: url.path)
+        }
+    }
+
+    private func send(file path: String) {
+        do {
+            // Whatever is in the box travels with it — a file arriving with no
+            // explanation is a puzzle rather than a message.
+            try core.sendFile(path, caption: draft.trimmingCharacters(in: .whitespacesAndNewlines),
+                              to: postChannel)
+            draft = ""
+            sendError = nil
+            note = "sent \((path as NSString).lastPathComponent)"
+        } catch {
+            sendError = "Not sent — \(error.localizedDescription)"
         }
     }
 
@@ -180,6 +237,31 @@ struct Who: View {
     }
 }
 
+/// A file in the stream: what it is, and a way to actually get it.
+struct FileChip: View {
+    let msg: Msg
+    let file: FileRef
+    @EnvironmentObject private var core: Core
+    @State private var state: String?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "paperclip").foregroundStyle(Sol.fgDim)
+            Text(file.name).font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
+            Text(file.readable).font(.system(size: 11)).foregroundStyle(Sol.fgDim)
+            if !msg.text.isEmpty {
+                Text("— " + msg.text).foregroundStyle(Sol.fgEm)
+            }
+            Button(state ?? "Save") {
+                do { state = "Saved"; _ = try core.fetchFile(msg) }
+                catch { state = "Failed" }
+            }
+            .buttonStyle(.borderless).font(.system(size: 11))
+            .disabled(state != nil)
+        }
+    }
+}
+
 struct ActionBadge: View {
     let action: String
     var body: some View {
@@ -227,7 +309,9 @@ struct ChatList: View {
                 .foregroundStyle(Sol.fgDim)
                 .frame(width: 54, alignment: .trailing)
             Who(name: m.who, isAI: m.isAI, machine: m.machine)
-            if m.isChange {
+            if m.isFile, let f = m.file {
+                FileChip(msg: m, file: f)
+            } else if m.isChange {
                 ActionBadge(action: m.action ?? "edited")
                 Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
                 Text("— " + m.text).foregroundStyle(Sol.fgEm)

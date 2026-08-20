@@ -2,7 +2,8 @@
 use crate::config;
 use crate::history;
 use crate::msg::{self, Msg, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
-use crate::wire::{Ack, Conn, Welcome};
+use crate::files;
+use crate::wire::{Ack, Conn, FileHeader, Want, Welcome};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -126,6 +127,90 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
     }
 
     match hello.mode.as_str() {
+        // Taking a file in. The bytes are checked against the hash the sender
+        // announced before anything is stored or published — a store that
+        // accepts whatever it is handed is not content-addressed, it is just a
+        // directory with confusing names.
+        "put" => {
+            let Ok(Some(hdr)) = conn.recv::<FileHeader>() else { return };
+            if hdr.file.size > files::MAX_BYTES {
+                let _ = conn.send(&Ack {
+                    ok: false,
+                    detail: format!("too big — the limit is {}", files::human(files::MAX_BYTES)),
+                });
+                return;
+            }
+            let mut data: Vec<u8> = Vec::new();
+            loop {
+                match conn.recv_raw() {
+                    Ok(Some(chunk)) if chunk.is_empty() => break,
+                    Ok(Some(chunk)) => {
+                        data.extend_from_slice(&chunk);
+                        if data.len() as u64 > files::MAX_BYTES {
+                            let _ = conn.send(&Ack { ok: false, detail: "too big".into() });
+                            return;
+                        }
+                    }
+                    _ => return, // hung up mid-file: nothing is stored, nothing published
+                }
+            }
+            let hash = files::hash_bytes(&data);
+            if data.len() as u64 != hdr.file.size || hash != hdr.file.hash {
+                let _ = conn.send(&Ack {
+                    ok: false,
+                    detail: "the bytes did not match what was announced — nothing stored".into(),
+                });
+                return;
+            }
+            if files::save_blob(&hello.channel, &hash, &data).is_err() {
+                let _ = conn.send(&Ack { ok: false, detail: "could not store it".into() });
+                return;
+            }
+            let name = files::safe_component(&hdr.file.name);
+            hub.publish(Msg {
+                channel: hello.channel.clone(),
+                from: hello.name.clone(),
+                host: hello.host.clone(),
+                at: msg::now(),
+                kind: crate::msg::KIND_FILE.into(),
+                via: if hdr.via == ACTOR_AI { ACTOR_AI.into() } else { String::new() },
+                text: hdr.caption.replace('\n', " "),
+                file: Some(files::FileRef { name: name.clone(), size: hdr.file.size, hash: hash.clone() }),
+                ..Default::default()
+            });
+            let _ = conn.send(&Ack {
+                ok: true,
+                detail: format!("{name} ({}) sent", files::human(hdr.file.size)),
+            });
+        }
+
+        // Handing a file back out, to somebody who already holds the channel key.
+        "get" => {
+            let Ok(Some(want)) = conn.recv::<Want>() else { return };
+            match files::read_blob(&hello.channel, &want.hash) {
+                None => {
+                    let _ = conn.send(&Ack {
+                        ok: false,
+                        detail: "no such file on this channel, or it failed its own hash".into(),
+                    });
+                }
+                Some(data) => {
+                    if conn
+                        .send(&Ack { ok: true, detail: data.len().to_string() })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    for chunk in data.chunks(files::CHUNK) {
+                        if conn.send_raw(chunk).is_err() {
+                            return;
+                        }
+                    }
+                    let _ = conn.send_raw(&[]);
+                }
+            }
+        }
+
         // Closing the room. The check is here rather than at the asking end:
         // holding the key proves you belong on the channel, not that you made
         // it, and only the machine that made it may close it.
@@ -144,6 +229,7 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 }
             } else {
                 let gone = history::purge(&hello.channel);
+                files::forget_channel(&hello.channel); // its files go with it
                 let _ = crate::channels::forget(&hello.channel);
                 println!("deleted #{} ({gone} messages) at {}'s request", hello.channel, hello.host);
                 Ack {

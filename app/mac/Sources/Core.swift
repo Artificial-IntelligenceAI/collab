@@ -7,6 +7,16 @@
 import Combine
 import Foundation
 
+struct FileRef: Codable, Hashable {
+    var name: String
+    var size: Int64
+    var hash: String
+
+    var readable: String {
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+}
+
 struct Msg: Codable, Identifiable, Hashable {
     var seq: Int64
     var channel: String
@@ -20,9 +30,13 @@ struct Msg: Codable, Identifiable, Hashable {
     var text: String
     var action: String?
     var target: String?
+    /// Set when this is a file. The bytes are not here — they are fetched when
+    /// somebody actually wants them.
+    var file: FileRef?
 
     var id: Int64 { seq }
     var isChange: Bool { kind == "change" }
+    var isFile: Bool { kind == "file" }
     var isAI: Bool { via == "ai" }
 
     /// "AI" or "Human" — what the badge says.
@@ -61,6 +75,9 @@ struct Msg: Codable, Identifiable, Hashable {
 
     /// One line, the way the terminal shows it.
     var line: String {
+        if isFile, let f = file {
+            return "[file] \(f.name) (\(f.readable))" + (text.isEmpty ? "" : " — \(text)")
+        }
         guard isChange else { return text }
         let t = target ?? ""
         return t.isEmpty ? "[\(action ?? "")] \(text)" : "[\(action ?? "")] \(t) — \(text)"
@@ -94,6 +111,9 @@ final class Core: ObservableObject {
     @Published private(set) var homeChannel = "general"
     @Published private(set) var serverAddr = ""
     @Published private(set) var knownChannels: [String] = []
+    /// Until this is true, `homeChannel` is only a placeholder. A view that
+    /// snapshots it before the settings arrive keeps the placeholder for ever.
+    @Published private(set) var settingsLoaded = false
     @Published private(set) var fatal: String?
 
     /// True until the backlog has finished arriving. Everything the server
@@ -107,8 +127,11 @@ final class Core: ObservableObject {
     private var pending: [Msg] = []
     private var settleTimer: Timer?
 
+    /// Every channel worth offering: the ones this machine holds keys for, plus
+    /// any seen in messages. A channel with nothing in it yet still exists.
     var channels: [String] {
         var set = Set(messages.map(\.channel))
+        set.formUnion(knownChannels)
         set.insert(homeChannel)
         return set.filter { !$0.isEmpty }.sorted()
     }
@@ -172,6 +195,7 @@ final class Core: ObservableObject {
         homeChannel = s.channel
         serverAddr = s.addr
         knownChannels = s.channels
+        settingsLoaded = true
         fatal = s.channels.isEmpty
             ? "No channels yet. Make one with the # button above, then send its key to the other person."
             : nil
@@ -277,6 +301,20 @@ final class Core: ObservableObject {
     }
 
     // MARK: sending
+
+    /// Sending is a person's act here; the caption is whatever is in the box.
+    func sendFile(_ path: String, caption: String, to channel: String) throws {
+        _ = try run(["send", path, "-m", caption, "-c", channel], channel: channel)
+    }
+
+    /// Downloads by hash and returns where it landed. Nothing is written unless
+    /// what arrived matches the hash.
+    @discardableResult
+    func fetchFile(_ m: Msg) throws -> String {
+        guard let f = m.file else { throw CollabError.command("that message has no file") }
+        let out = try run(["get", f.hash, "-c", m.channel], channel: m.channel)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     func post(_ text: String, to channel: String) throws {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")

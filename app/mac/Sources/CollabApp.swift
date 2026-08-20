@@ -12,6 +12,11 @@ final class AppState: ObservableObject {
     /// Registered by SwiftUI once it exists; AppKit alone cannot open a
     /// Window scene by id.
     var openMainWindow: (() -> Void)?
+    /// Set when something asks for a particular channel — a notification being
+    /// clicked, or a collab://open?channel= URL. A popup should land where the
+    /// message came from, the way clicking a WhatsApp notification opens that
+    /// conversation rather than the app in general.
+    @Published var requestedChannel: String?
 
     func showWindow() {
         NSApp.activate(ignoringOtherApps: true)
@@ -59,7 +64,12 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 UNUserNotificationCenter.current().add(
                     UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
             case "open":
-                Task { @MainActor in AppState.shared.showWindow() }
+                let wanted = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "channel" })?.value
+                Task { @MainActor in
+                    if let wanted, !wanted.isEmpty { AppState.shared.requestedChannel = wanted }
+                    AppState.shared.showWindow()
+                }
             default:
                 break
             }
@@ -75,7 +85,9 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
+        let wanted = response.notification.request.content.userInfo["channel"] as? String
         Task { @MainActor in
+            if let wanted, !wanted.isEmpty { AppState.shared.requestedChannel = wanted }
             AppState.shared.showWindow()
             done()
         }
@@ -137,6 +149,7 @@ struct CollabApp: App {
     var body: some Scene {
         Window("collab", id: "main") {
             ContentView(core: state.core)
+                .environmentObject(state.core)
                 .frame(minWidth: 720, minHeight: 420)
         }
         .defaultSize(width: 1000, height: 640)

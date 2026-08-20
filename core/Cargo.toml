@@ -9,6 +9,7 @@ serde                = { version = "1", features = ["derive"] }
 serde_json           = "1"
 chacha20poly1305     = "0.10"   # XChaCha20-Poly1305: 24-byte nonces, no AES-NI needed
 rand                 = "0.8"
+sha2                 = "0.10"   # content addressing: the hash is the file's identity
 base64               = "0.22"
 time                 = { version = "0.3", features = ["formatting", "parsing", "local-offset"] }
 

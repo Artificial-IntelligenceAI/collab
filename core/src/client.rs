@@ -2,6 +2,7 @@
 //! look like silence.
 use crate::channels;
 use crate::config;
+use crate::files;
 use crate::history;
 use crate::msg::{Msg, ACTIONS, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
 use crate::notify::Notifier;
@@ -450,6 +451,157 @@ pub fn show_log(only_changes: bool, all_channels: bool) {
             continue;
         }
         println!("#{:<4} [{}] {}: {}", m.seq, m.hhmm(), m.label(), m.line());
+    }
+}
+
+/// Sends a file. The bytes go to the store and the channel gets a reference,
+/// so a screenshot is carried once rather than replayed to every watcher for
+/// ever.
+pub fn send_file(path: &str, caption: &str, channel: &str, via_ai: bool) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    let meta = std::fs::metadata(p).map_err(|e| format!("cannot read {path} — {e}"))?;
+    if meta.is_dir() {
+        return Err(format!("{path} is a folder; send a file"));
+    }
+    if meta.len() > files::MAX_BYTES {
+        return Err(format!(
+            "{path} is {} — the limit is {}",
+            files::human(meta.len()),
+            files::human(files::MAX_BYTES)
+        ));
+    }
+    let data = std::fs::read(p).map_err(|e| format!("cannot read {path} — {e}"))?;
+    let name = p
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unnamed".into());
+    let want = files::FileRef {
+        name,
+        size: data.len() as u64,
+        hash: files::hash_bytes(&data),
+    };
+
+    let mut conn = dial(channel).map_err(|e| e.to_string())?;
+    conn.send(&Hello {
+        name: config::name(),
+        host: config::name(),
+        channel: channel.to_string(),
+        since: 0,
+        mode: "put".into(),
+    })
+    .and_then(|_| conn.expect_welcome().map(|_| ()))
+    .map_err(|e| e.to_string())?;
+    conn.send(&crate::wire::FileHeader {
+        file: want.clone(),
+        caption: caption.to_string(),
+        via: if via_ai { crate::msg::ACTOR_AI.into() } else { String::new() },
+    })
+    .map_err(|e| e.to_string())?;
+    for chunk in data.chunks(files::CHUNK) {
+        conn.send_raw(chunk).map_err(|e| e.to_string())?;
+    }
+    conn.send_raw(&[]).map_err(|e| e.to_string())?;
+
+    match conn.recv::<crate::wire::Ack>() {
+        Ok(Some(a)) if a.ok => Ok(a.detail),
+        Ok(Some(a)) => Err(a.detail),
+        _ => Err("the server did not answer".into()),
+    }
+}
+
+/// Fetches a file by hash and writes it somewhere safe. The name came from
+/// whoever sent it, so it is cleaned before it is ever used as a path.
+pub fn get_file(hash: &str, name: &str, dir: &std::path::Path, channel: &str) -> Result<std::path::PathBuf, String> {
+    let mut conn = dial(channel).map_err(|e| e.to_string())?;
+    conn.send(&Hello {
+        name: config::name(),
+        host: config::name(),
+        channel: channel.to_string(),
+        since: 0,
+        mode: "get".into(),
+    })
+    .and_then(|_| conn.expect_welcome().map(|_| ()))
+    .map_err(|e| e.to_string())?;
+    conn.send(&crate::wire::Want { hash: hash.to_string() })
+        .map_err(|e| e.to_string())?;
+
+    match conn.recv::<crate::wire::Ack>() {
+        Ok(Some(a)) if a.ok => {}
+        Ok(Some(a)) => return Err(a.detail),
+        _ => return Err("the server did not answer".into()),
+    }
+    let mut data = Vec::new();
+    loop {
+        match conn.recv_raw() {
+            Ok(Some(chunk)) if chunk.is_empty() => break,
+            Ok(Some(chunk)) => data.extend_from_slice(&chunk),
+            _ => return Err("the transfer stopped part-way — nothing written".into()),
+        }
+    }
+    // Content addressing is only worth anything if it is checked on the way in.
+    if files::hash_bytes(&data) != hash {
+        return Err("what arrived does not match the hash — nothing written".into());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let out = files::unique_path(dir, name);
+    std::fs::write(&out, &data).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+pub fn default_incoming() -> std::path::PathBuf {
+    config::home("Downloads").join("collab")
+}
+
+/// Every file on a channel, newest last.
+pub fn files_on(channel: &str) -> Vec<Msg> {
+    fetch(channel, 0).into_iter().filter(|m| m.is_file()).collect()
+}
+
+pub fn send_file_cmd(path: &str, caption: &str, channel: Option<&str>) {
+    let ch = channel.map(channels::tidy).unwrap_or_else(config::channel);
+    match send_file(path, caption, &ch, false) {
+        Ok(detail) => println!("{detail} to #{ch}"),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn files_cmd(channel: Option<&str>) {
+    let ch = channel.map(channels::tidy).unwrap_or_else(config::channel);
+    let list = files_on(&ch);
+    if list.is_empty() {
+        println!("no files on #{ch}");
+        return;
+    }
+    for m in list {
+        if let Some(f) = &m.file {
+            println!("{:<10} {:<9} {}  ({})", &f.hash[..8.min(f.hash.len())],
+                     files::human(f.size), f.name, m.label());
+        }
+    }
+}
+
+pub fn get_file_cmd(which: &str, out: Option<&str>, channel: Option<&str>) {
+    let ch = channel.map(channels::tidy).unwrap_or_else(config::channel);
+    let list = files_on(&ch);
+    let found = list.iter().rev().find(|m| {
+        m.file.as_ref().is_some_and(|f| f.hash == which || f.hash.starts_with(which) || f.name == which)
+    });
+    let Some(f) = found.and_then(|m| m.file.clone()) else {
+        eprintln!("collab: no file matching \"{which}\" on #{ch}");
+        std::process::exit(2);
+    };
+    let dir = out
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_incoming);
+    match get_file(&f.hash, &f.name, &dir, &ch) {
+        Ok(p) => println!("saved {}", p.display()),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

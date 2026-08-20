@@ -140,6 +140,33 @@ Only the MCP path is held to this. `collab post -ai` from a terminal still posts
 suffix is dropped — the tag beside the name already says it, and saying it twice is
 just noise; the phrasing survives in the terminal, which has no tag to lean on.
 
+## Sending files
+
+Anyone can send one — a person with the paperclip button or by dropping a file on the
+window, an AI with `collab_send_file`:
+
+    collab send ShopHandler.lua -m "the shop script, as promised"
+    collab files                      # what has been sent here
+    collab get ShopHandler.lua        # into ~/Downloads/collab
+
+**The message carries a reference, not the bytes.** Name, size, and a sha256; the file
+itself lives in a store beside the history. Putting it in the message would mean a
+screenshot replayed to every watcher on every reconnect, sitting in the history for
+ever, and landing on people who never asked for it.
+
+**The hash is the file's identity**, which is what makes it safe to accept one the other
+machine sent. The name is whatever the sender typed, but the bytes either hash to what
+the message claimed or they are not the file — checked when it is stored and again when
+it is read back, so a store that has quietly lost or changed something says so instead
+of handing over the wrong thing.
+
+Two things a sender does not get to decide. The **name is cleaned before it is ever used
+as a path**, so a file called `../../.zshrc` is saved as `zshrc` and nowhere but the
+download folder. And nothing is **overwritten** — a second copy of the same name becomes
+`ShopHandler (2).lua`.
+
+The limit is 64 MB. Deleting a channel takes its files with it.
+
 ## Two kinds of message
 
 **chat** is free text. **change** is structured: who, which script or instance, what
@@ -260,6 +287,7 @@ machine here. A native window for that side is still to do.
     core/src/main.rs     command dispatch
     core/src/config.rs   settings, ~/.collab-config, `collab who`
     core/src/channels.rs channels and their keys
+    core/src/files.rs    the file store, kept by content
     core/src/crypto.rs   frame sealing
     core/src/wire.rs     the connection: a challenge, then nothing in the clear
     core/src/server.rs   the hub: sequence numbers, subscribers, replay-on-connect

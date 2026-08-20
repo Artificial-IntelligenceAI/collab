@@ -11,7 +11,7 @@ use crate::crypto::{random, Sealer, CHALLENGE_LEN};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
 pub const PROTOCOL: u32 = 4;
@@ -47,6 +47,23 @@ pub struct Welcome {
     /// otherwise know, and needs to, to be told who can close the room.
     #[serde(default)]
     pub creator: String,
+}
+
+/// What a file transfer announces before its bytes.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct FileHeader {
+    #[serde(default)]
+    pub file: crate::files::FileRef,
+    #[serde(default)]
+    pub caption: String,
+    #[serde(default)]
+    pub via: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Want {
+    #[serde(default)]
+    pub hash: String,
 }
 
 /// The answer to something that either happened or did not.
@@ -152,6 +169,41 @@ impl Conn {
         let _ = self.reader.get_ref().set_read_timeout(d);
     }
 
+    /// Raw bytes, sealed. File chunks go this way rather than as JSON: base64
+    /// inside JSON inside a base64 frame would carry the file nearly twice
+    /// over, where this carries it about a third over.
+    pub fn send_raw(&mut self, data: &[u8]) -> io::Result<()> {
+        writeln!(self.writer, "{}", self.sealer.seal(data))?;
+        self.writer.flush()
+    }
+
+    /// None at end of stream; an empty vector is the sender saying "that's all".
+    pub fn recv_raw(&mut self) -> io::Result<Option<Vec<u8>>> {
+        match self.read_frame()? {
+            None => Ok(None),
+            Some(line) => Ok(Some(self.sealer.open(&line)?)),
+        }
+    }
+
+    /// A frame nobody should be sending is not read into memory just because
+    /// somebody asked. The cap is a comfortable multiple of the largest frame
+    /// this protocol produces, which is one file chunk.
+    fn read_frame(&mut self) -> io::Result<Option<String>> {
+        const MAX_FRAME: usize = 2 * 1024 * 1024;
+        let mut line = String::new();
+        let mut limited = (&mut self.reader).take(MAX_FRAME as u64);
+        if limited.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        if !line.ends_with('\n') && line.len() >= MAX_FRAME {
+            return Err(io::Error::other("frame too large"));
+        }
+        if line.trim().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(line))
+    }
+
     pub fn send<T: Serialize>(&mut self, value: &T) -> io::Result<()> {
         let plain = serde_json::to_vec(value)?;
         writeln!(self.writer, "{}", self.sealer.seal(&plain))?;
@@ -161,13 +213,9 @@ impl Conn {
     /// None at end of stream. An error means the frame would not open, which is
     /// either the wrong key or someone meddling — either way, not a message.
     pub fn recv<T: for<'de> Deserialize<'de>>(&mut self) -> io::Result<Option<T>> {
-        let mut line = String::new();
-        if self.reader.read_line(&mut line)? == 0 {
+        let Some(line) = self.read_frame()? else {
             return Ok(None);
-        }
-        if line.trim().is_empty() {
-            return Ok(None);
-        }
+        };
         let plain = self.sealer.open(&line)?;
         Ok(Some(serde_json::from_slice(&plain)?))
     }

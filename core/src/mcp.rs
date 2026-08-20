@@ -68,6 +68,38 @@ first. If you are listening to more than one channel you must say which one this
           "required":["action","target","summary"]}
       },
       {
+        "name": "collab_send_file",
+        "description": "Send a file from this machine to the other person. Use it for a script, a \
+screenshot, a model — anything they need the actual bytes of rather than a description. The file \
+is carried once and stored by content, so sending the same bytes twice costs nothing. Say in the \
+caption what it is for; a file arriving with no explanation is a puzzle. Requires collab_join, \
+and a channel if you are listening to more than one.",
+        "inputSchema": {"type":"object","properties":{
+            "path":    {"type":"string","description":"Absolute path of the file on this machine."},
+            "caption": {"type":"string","description":"What it is and why you are sending it."},
+            "channel": {"type":"string","description":"Which channel. Only optional when you are listening to exactly one."}},
+          "required":["path","caption"]}
+      },
+      {
+        "name": "collab_files",
+        "description": "List the files that have been sent on a channel, oldest first, with their \
+sizes and who sent them. The bytes are not fetched by this — use collab_get_file for that.",
+        "inputSchema": {"type":"object","properties":{
+            "channel": {"type":"string","description":"One channel. Omit for everything you are listening to."}}}
+      },
+      {
+        "name": "collab_get_file",
+        "description": "Download a file somebody sent, by name or by the start of its hash, and \
+write it to this machine. What arrives is checked against the hash before anything is written, so \
+a file that does not match is refused rather than saved. Saves into ~/Downloads/collab unless you \
+say otherwise, and never overwrites: a second copy is numbered.",
+        "inputSchema": {"type":"object","properties":{
+            "file":    {"type":"string","description":"The file's name, or the first few characters of its hash."},
+            "save_to": {"type":"string","description":"Folder to write it into. Defaults to ~/Downloads/collab."},
+            "channel": {"type":"string","description":"Which channel. Only optional when you are listening to exactly one."}},
+          "required":["file"]}
+      },
+      {
         "name": "collab_recent",
         "description": "Read recent activity on the shared channel, oldest first — both chat and recorded changes.",
         "inputSchema": {"type":"object","properties":{
@@ -413,6 +445,65 @@ you subscribe again."
                     "could not reach the collab server at {} ({e}) — the change was NOT recorded",
                     config::addr()
                 )),
+            }
+        }
+        "collab_send_file" => {
+            let to = match post_target(req, session_name) {
+                Ok(c) => c,
+                Err(e) => return text(e),
+            };
+            let path = arg(req, "path");
+            if path.is_empty() {
+                return text("which file? give an absolute path on this machine".into());
+            }
+            match client::send_file(path, arg(req, "caption"), &to, true) {
+                Ok(detail) => text(format!("{detail} to #{to}")),
+                Err(e) => text(format!("not sent — {e}")),
+            }
+        }
+        "collab_files" => {
+            let mut out = String::new();
+            for ch in read_scope(req) {
+                for m in client::files_on(&ch) {
+                    if let Some(f) = &m.file {
+                        out.push_str(&format!(
+                            "#{ch}  {}  {:<9} {}  from {}{}\n",
+                            &f.hash[..8.min(f.hash.len())],
+                            crate::files::human(f.size),
+                            f.name,
+                            m.label(),
+                            if m.text.is_empty() { String::new() } else { format!(" — {}", m.text) }
+                        ));
+                    }
+                }
+            }
+            if out.is_empty() {
+                return text("no files have been sent here yet".into());
+            }
+            text(out)
+        }
+        "collab_get_file" => {
+            let to = match post_target(req, session_name) {
+                Ok(c) => c,
+                Err(e) => return text(e),
+            };
+            let which = arg(req, "file");
+            let list = client::files_on(&to);
+            let found = list.iter().rev().find(|m| {
+                m.file.as_ref().is_some_and(|f| {
+                    f.hash == which || f.hash.starts_with(which) || f.name == which
+                })
+            });
+            let Some(f) = found.and_then(|m| m.file.clone()) else {
+                return text(format!("no file matching \"{which}\" on #{to}"));
+            };
+            let dir = match arg(req, "save_to") {
+                "" => client::default_incoming(),
+                d => std::path::PathBuf::from(d),
+            };
+            match client::get_file(&f.hash, &f.name, &dir, &to) {
+                Ok(p) => text(format!("saved {}", p.display())),
+                Err(e) => text(format!("not saved — {e}")),
             }
         }
         "collab_recent" => {

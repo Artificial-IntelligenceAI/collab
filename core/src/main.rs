@@ -10,6 +10,7 @@ mod channels;
 mod client;
 mod config;
 mod crypto;
+mod files;
 mod history;
 mod mcp;
 mod msg;
@@ -85,6 +86,25 @@ fn main() {
             take_switch(&mut args, "-changes"),
             take_switch(&mut args, "-all"),
         ),
+        "send" => {
+            let channel = take_flag(&mut args, "-c");
+            let caption = take_flag(&mut args, "-m").unwrap_or_default();
+            client::send_file_cmd(
+                args.first().map(String::as_str).unwrap_or(""),
+                &caption,
+                channel.as_deref(),
+            )
+        }
+        "files" => client::files_cmd(take_flag(&mut args, "-c").as_deref()),
+        "get" => {
+            let channel = take_flag(&mut args, "-c");
+            let out = take_flag(&mut args, "-o");
+            client::get_file_cmd(
+                args.first().map(String::as_str).unwrap_or(""),
+                out.as_deref(),
+                channel.as_deref(),
+            )
+        }
         "who" => {
             if take_switch(&mut args, "-json") {
                 config::who_json()

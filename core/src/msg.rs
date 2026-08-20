@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const KIND_CHAT: &str = "chat";
 pub const KIND_CHANGE: &str = "change";
+pub const KIND_FILE: &str = "file";
 
 /// Who actually spoke. A name in collab belongs to a machine, not a person, so
 /// without this "sis" means both the other person and their Claude — and "sis is asking
@@ -41,6 +42,11 @@ pub struct Msg {
     pub host: String,
     #[serde(default)]
     pub text: String,
+    /// file only: what was sent, by name, size and hash. The bytes are not
+    /// here — they are in the store, fetched when somebody actually wants them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<crate::files::FileRef>,
+
     // change only
     #[serde(default, skip_serializing_if = "empty")]
     pub action: String,
@@ -50,11 +56,15 @@ pub struct Msg {
 
 impl Msg {
     pub fn kind(&self) -> &str {
-        if self.kind == KIND_CHANGE {
-            KIND_CHANGE
-        } else {
-            KIND_CHAT
+        match self.kind.as_str() {
+            KIND_CHANGE => KIND_CHANGE,
+            KIND_FILE => KIND_FILE,
+            _ => KIND_CHAT,
         }
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.kind() == KIND_FILE
     }
 
     pub fn is_change(&self) -> bool {
@@ -98,6 +108,18 @@ impl Msg {
 
     /// One line, for a terminal — this is what Monitor ends up showing.
     pub fn line(&self) -> String {
+        if let Some(f) = self.file.as_ref().filter(|_| self.is_file()) {
+            let caption = if self.text.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", self.text)
+            };
+            return format!(
+                "[file] {} ({}){caption}",
+                f.name,
+                crate::files::human(f.size)
+            );
+        }
         if self.is_change() {
             if !self.target.is_empty() {
                 return format!("[{}] {} — {}", self.action, self.target, self.text);
