@@ -43,6 +43,19 @@ pub struct Welcome {
     pub ok: bool,
     #[serde(default)]
     pub server: String,
+    /// Which machine made this channel. Someone who was handed a key does not
+    /// otherwise know, and needs to, to be told who can close the room.
+    #[serde(default)]
+    pub creator: String,
+}
+
+/// The answer to something that either happened or did not.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Ack {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub detail: String,
 }
 
 #[derive(Serialize, Deserialize)]

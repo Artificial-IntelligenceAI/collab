@@ -11,6 +11,7 @@ can tell each other what they just did.
     collab who                what name, channel and server are in force
     collab channels [-keys]   channels this machine can open
     collab channel add ...    join a channel someone sent you
+    collab channel delete ..  close one everywhere (only where it was made)
     collab test-notify        check that popup notifications work
     collab mcp                run as an MCP server (tools only)
 
@@ -33,6 +34,16 @@ into the same panel, or run:
 
     collab channel add roblox-game <key>
     collab channels [-keys]        # what this machine holds
+
+**Deleting is not leaving.** *Leave* drops your copy of the key and touches nobody
+else's. *Delete* closes the room: the messages go from the server and the key is
+dropped, so anyone still holding it simply cannot connect any more. Only the machine
+that made a channel may delete it, and the server checks that itself rather than
+taking the asker's word for it — but names in collab are self-asserted throughout, so
+this stops you deleting the other person's channel by accident, not a determined holder of
+the key. Deleting also records a floor for the sequence numbers, because handing out a
+number that had been used before would make a watcher's "resume from #N" skip real
+messages.
 
 **An AI cannot make a channel.** There is no MCP tool for it, `collab_join` refuses a
 channel this machine holds no key for, and the refusal lists the ones it does hold.
@@ -243,7 +254,7 @@ machine here. A native window for that side is still to do.
     core/src/wire.rs     the connection: a challenge, then nothing in the clear
     core/src/server.rs   the hub: sequence numbers, subscribers, replay-on-connect
     core/src/client.rs   watch, post, change, log, and the reconnect rule
-    core/src/history.rs  the file the server owns
+    core/src/history.rs  the file the server owns, and purging a channel from it
     core/src/notify.rs   finding the notifier, and coalescing bursts into one popup
     core/src/mcp.rs      the MCP tools
     core/src/msg.rs      what travels on the wire

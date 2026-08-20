@@ -27,6 +27,8 @@ const USAGE: &str = "usage:
   collab who                            show the name, channel, server and key in use
   collab channels [-keys]               channels on this machine
   collab channel add <name> <key>       join a channel someone sent you
+  collab channel delete <name>          close it everywhere (only where it was made)
+  collab channel forget <name>          leave it (drops your key only)
   collab test-notify                    check that popup notifications work
   collab mcp                            run as an MCP server";
 
@@ -100,9 +102,12 @@ fn main() {
                 args.get(1).map(String::as_str).unwrap_or(""),
                 args.get(2).map(String::as_str).unwrap_or(""),
             ),
+            Some("delete") => client::channel_delete(args.get(1).map(String::as_str).unwrap_or("")),
             Some("forget") => client::channel_forget(args.get(1).map(String::as_str).unwrap_or("")),
             _ => {
-                eprintln!("usage: collab channel add <name> <key>  |  collab channel forget <name>");
+                eprintln!("usage: collab channel add <name> <key>");
+                eprintln!("       collab channel delete <name>   (only where it was made)");
+                eprintln!("       collab channel forget <name>   (leave; drops your key only)");
                 eprintln!("       (new channels are made in the collab app, by a person)");
                 std::process::exit(2);
             }

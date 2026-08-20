@@ -76,7 +76,10 @@ fn stream_channel<F, S>(
                     since: since.load(SeqCst),
                     mode: "watch".into(),
                 };
-                if let Err(e) = conn.send(&hello).and_then(|_| conn.expect_welcome().map(|_| ())) {
+                if let Err(e) = conn.send(&hello).and_then(|_| {
+                    conn.expect_welcome()
+                        .map(|w| channels::learn_creator(channel, &w.creator))
+                }) {
                     on_status(false, since.load(SeqCst), Some(e.to_string()));
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
@@ -272,7 +275,9 @@ pub fn send_full(channel: &str, display: Option<&str>, m: Msg) -> std::io::Resul
         mode: "post".into(),
         since: 0,
     })?;
-    conn.expect_welcome()?; // refuses to call an unreadable message "sent"
+    // Refuses to call an unreadable message "sent", and learns who made the
+    // channel while it is here.
+    channels::learn_creator(channel, &conn.expect_welcome()?.creator);
     conn.send(&m)?;
     std::thread::sleep(Duration::from_millis(150)); // let it land before hanging up
     Ok(())
@@ -406,7 +411,8 @@ pub fn channels_cmd(show_keys: bool, as_json: bool) {
         let list: Vec<_> = reg
             .iter()
             .map(|(name, ch)| {
-                serde_json::json!({"name": name, "key": ch.key, "mine": ch.mine, "created": ch.created})
+                serde_json::json!({"name": name, "key": ch.key, "mine": ch.mine,
+                                   "created": ch.created, "creator": ch.creator_name()})
             })
             .collect();
         println!("{}", serde_json::json!(list));
@@ -445,11 +451,56 @@ pub fn channel_create(name: &str) {
 }
 
 pub fn channel_add(name: &str, key: &str) {
-    match channels::add(name, key) {
+    match channels::add(name, key, "") {
         Ok(n) => println!("joined #{n} — it will work once the other machine is reachable"),
         Err(e) => {
             eprintln!("collab: {e}");
             std::process::exit(2);
+        }
+    }
+}
+
+/// Closing a channel everywhere, as opposed to leaving it. The local check is
+/// only for a decent error message; the server does its own, because a machine
+/// that has been told it may not delete could simply not ask.
+pub fn channel_delete(name: &str) {
+    let name = channels::tidy(name);
+    if let Err(e) = channels::may_delete(&name) {
+        eprintln!("collab: {e}");
+        std::process::exit(2);
+    }
+    let mut conn = match dial(&name) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("collab: cannot reach {} — {e}", config::addr());
+            eprintln!("        the server has to be reachable to delete a channel from it");
+            std::process::exit(1);
+        }
+    };
+    let hello = Hello {
+        name: config::name(),
+        host: config::name(),
+        channel: name.clone(),
+        since: 0,
+        mode: "delete".into(),
+    };
+    if let Err(e) = conn.send(&hello).and_then(|_| conn.expect_welcome().map(|_| ())) {
+        eprintln!("collab: {e}");
+        std::process::exit(1);
+    }
+    match conn.recv::<crate::wire::Ack>() {
+        Ok(Some(a)) if a.ok => {
+            let _ = channels::forget(&name);
+            println!("{}", a.detail);
+            println!("the key is gone from here; anyone else still holding it can no longer connect");
+        }
+        Ok(Some(a)) => {
+            eprintln!("collab: {}", a.detail);
+            std::process::exit(2);
+        }
+        _ => {
+            eprintln!("collab: the server did not answer");
+            std::process::exit(1);
         }
     }
 }

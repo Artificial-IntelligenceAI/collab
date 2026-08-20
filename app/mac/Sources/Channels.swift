@@ -13,6 +13,7 @@ struct ChannelInfo: Codable, Identifiable, Hashable {
     var key: String
     var mine: Bool
     var created: String
+    var creator: String
     var id: String { name }
 }
 
@@ -78,10 +79,22 @@ final class ChannelStore: ObservableObject {
         }
     }
 
+    /// Leaving: drops this machine's key and touches nobody else's.
     func forget(_ name: String) {
         do {
             _ = try collab(["channel", "forget", name])
             reload()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Closing the room, for everyone. Only where it was made.
+    func delete(_ name: String) {
+        do {
+            _ = try collab(["channel", "delete", name])
+            reload()
+            error = nil
         } catch {
             self.error = error.localizedDescription
         }
@@ -98,6 +111,7 @@ struct ChannelsView: View {
     @State private var addKey = ""
     @State private var justMade: (name: String, key: String)?
     @State private var copied: String?
+    @State private var confirming: ChannelInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -132,6 +146,18 @@ struct ChannelsView: View {
         }
         .frame(width: 470)
         .background(Sol.bg)
+        .alert("Delete #\(confirming?.name ?? "")?",
+               isPresented: Binding(get: { confirming != nil },
+                                    set: { if !$0 { confirming = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let c = confirming { store.delete(c.name); onChange() }
+                confirming = nil
+            }
+            Button("Cancel", role: .cancel) { confirming = nil }
+        } message: {
+            Text("Its messages are deleted from the server and its key is dropped here. "
+                 + "Anyone still holding the key will no longer be able to connect. This cannot be undone.")
+        }
     }
 
     private func row(_ c: ChannelInfo) -> some View {
@@ -143,8 +169,18 @@ struct ChannelsView: View {
                 Spacer()
                 Button(copied == c.name ? "Copied" : "Copy key") { copy(c.key, tag: c.name) }
                     .buttonStyle(.borderless).font(.system(size: 11))
-                Button("Forget") { store.forget(c.name); onChange() }
-                    .buttonStyle(.borderless).font(.system(size: 11)).foregroundStyle(Sol.red)
+                // Made here: closing it is real, and irreversible, so it asks.
+                // Given to you: you can only put your own copy down.
+                if c.mine {
+                    Button("Delete") { confirming = c }
+                        .buttonStyle(.borderless).font(.system(size: 11))
+                        .foregroundStyle(Sol.red)
+                        .help("Closes #\(c.name) for everyone and deletes its messages")
+                } else {
+                    Button("Leave") { store.forget(c.name); onChange() }
+                        .buttonStyle(.borderless).font(.system(size: 11))
+                        .help("Drops your key. Only \(c.creator.isEmpty ? "whoever made it" : c.creator) can delete it")
+                }
             }
             Text(c.key)
                 .font(.system(size: 10, design: .monospaced))

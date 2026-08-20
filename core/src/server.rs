@@ -2,7 +2,7 @@
 use crate::config;
 use crate::history;
 use crate::msg::{self, Msg, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
-use crate::wire::{Conn, Welcome};
+use crate::wire::{Ack, Conn, Welcome};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -63,7 +63,12 @@ impl Hub {
 
 pub fn serve() -> ! {
     // Resume numbering across restarts.
-    let resume = history::read().iter().map(|m| m.seq).max().unwrap_or(0);
+    let resume = history::read()
+        .iter()
+        .map(|m| m.seq)
+        .max()
+        .unwrap_or(0)
+        .max(history::seq_floor());
     let hub = Hub::new(resume);
 
     let port = config::port();
@@ -106,10 +111,14 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
     hello.channel = channel;
     // The Hello opened, so both sides hold the same key. Say so — otherwise a
     // client with the wrong word cannot tell refusal from delivery.
+    let creator = crate::channels::get(&hello.channel)
+        .map(|c| c.creator_name())
+        .unwrap_or_default();
     if conn
         .send(&Welcome {
             ok: true,
             server: config::hostname(),
+            creator,
         })
         .is_err()
     {
@@ -117,6 +126,34 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
     }
 
     match hello.mode.as_str() {
+        // Closing the room. The check is here rather than at the asking end:
+        // holding the key proves you belong on the channel, not that you made
+        // it, and only the machine that made it may close it.
+        "delete" => {
+            let ch = crate::channels::get(&hello.channel);
+            let creator = ch.as_ref().map(|c| c.creator_name()).unwrap_or_default();
+            let ack = if creator.is_empty() {
+                Ack { ok: false, detail: format!("#{} records no creator", hello.channel) }
+            } else if creator != hello.host {
+                Ack {
+                    ok: false,
+                    detail: format!(
+                        "#{} was made on {creator}; only {creator} can delete it",
+                        hello.channel
+                    ),
+                }
+            } else {
+                let gone = history::purge(&hello.channel);
+                let _ = crate::channels::forget(&hello.channel);
+                println!("deleted #{} ({gone} messages) at {}'s request", hello.channel, hello.host);
+                Ack {
+                    ok: true,
+                    detail: format!("deleted #{}, {gone} message(s) removed", hello.channel),
+                }
+            };
+            let _ = conn.send(&ack);
+        }
+
         // History in one shot, then hang up — for `collab log` and the read
         // tools on the machine that is not the server, whose own copy is empty.
         "fetch" => {

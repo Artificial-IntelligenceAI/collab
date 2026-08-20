@@ -30,6 +30,22 @@ pub struct Channel {
     /// Whether this machine made it, or was given it.
     #[serde(default)]
     pub mine: bool,
+    /// The machine that made it. `mine` is only this machine's opinion; the
+    /// server needs a name it can check against whoever is asking to delete.
+    #[serde(default)]
+    pub creator: String,
+}
+
+impl Channel {
+    /// Entries written before creators were recorded: if this machine made it,
+    /// this machine is the creator.
+    pub fn creator_name(&self) -> String {
+        if self.creator.is_empty() && self.mine {
+            config::name()
+        } else {
+            self.creator.clone()
+        }
+    }
 }
 
 pub type Registry = BTreeMap<String, Channel>;
@@ -75,7 +91,7 @@ pub fn tidy(name: &str) -> String {
         .collect::<Vec<_>>()
         .join("-")
         .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.'))
         .take(32)
         .collect()
 }
@@ -92,14 +108,19 @@ pub fn create(name: &str) -> Result<(String, String), String> {
     let key = B64.encode(crate::crypto::random(KEY_BYTES));
     reg.insert(
         name.clone(),
-        Channel { key: key.clone(), created: crate::msg::now(), mine: true },
+        Channel {
+            key: key.clone(),
+            created: crate::msg::now(),
+            mine: true,
+            creator: config::name(),
+        },
     );
     save(&reg).map_err(|e| e.to_string())?;
     Ok((name, key))
 }
 
 /// Adding a channel somebody else made, from the name and key they sent you.
-pub fn add(name: &str, key: &str) -> Result<String, String> {
+pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
     let name = tidy(name);
     if name.is_empty() {
         return Err("a channel needs a name".into());
@@ -111,15 +132,57 @@ pub fn add(name: &str, key: &str) -> Result<String, String> {
         Err(_) => return Err("that key is not valid base64".into()),
     }
     let mut reg = load();
-    reg.insert(name.clone(), Channel { key, created: crate::msg::now(), mine: false });
+    reg.insert(
+        name.clone(),
+        Channel { key, created: crate::msg::now(), mine: false, creator: creator.trim().to_string() },
+    );
     save(&reg).map_err(|e| e.to_string())?;
     Ok(name)
 }
 
+/// Records who made a channel, learnt from the server on connecting. Someone
+/// who was handed a key has no other way to know.
+pub fn learn_creator(name: &str, creator: &str) {
+    let creator = creator.trim();
+    if creator.is_empty() {
+        return;
+    }
+    let mut reg = load();
+    if let Some(ch) = reg.get_mut(name) {
+        if ch.creator.is_empty() && !ch.mine {
+            ch.creator = creator.to_string();
+            let _ = save(&reg);
+        }
+    }
+}
+
+/// Drops the key from this machine only. Everyone else's copy is untouched —
+/// leaving a room is not the same as closing it.
 pub fn forget(name: &str) -> Result<(), String> {
     let mut reg = load();
     if reg.remove(&tidy(name)).is_none() {
         return Err("no such channel here".into());
     }
     save(&reg).map_err(|e| e.to_string())
+}
+
+/// Closing the room. Only the machine that made the channel may, and the
+/// server checks that itself rather than taking the asker's word for it.
+pub fn may_delete(name: &str) -> Result<Channel, String> {
+    let name = tidy(name);
+    let ch = get(&name).ok_or_else(|| format!("no channel #{name} here"))?;
+    let creator = ch.creator_name();
+    if creator.is_empty() {
+        return Err(format!(
+            "#{name} does not record which machine made it, so it cannot be deleted — \
+             you can leave it instead"
+        ));
+    }
+    if creator != config::name() {
+        return Err(format!(
+            "#{name} was made on {creator}, and only {creator} can delete it. \
+             You can leave it instead, which drops your key without touching anyone else's"
+        ));
+    }
+    Ok(ch)
 }
