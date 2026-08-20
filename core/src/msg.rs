@@ -12,6 +12,8 @@ pub const ACTOR_AI: &str = "ai";
 /// What a change did. Anything else is rejected at the door.
 pub const ACTIONS: [&str; 4] = ["added", "edited", "removed", "renamed"];
 
+// serde hands skip_serializing_if a &String, so &str is not an option here.
+#[allow(clippy::ptr_arg)]
 fn empty(s: &String) -> bool {
     s.is_empty()
 }

@@ -1,37 +1,36 @@
 #!/bin/sh
-# Builds everything, for both machines, into dist/.
+# Builds everything into dist/.
 #
-#   dist/macos/    collab          + collab.app   (the notifier)
-#   dist/windows/  collab.exe      + collab-notify.exe + collab.png
+#   dist/macos/    collab (Rust core) + Collab.app (menu bar app + window)
+#   dist/windows/  collab.exe + collab-notify.exe + collab.png
 #
-# The Go binaries need nothing but Go. collab.app needs Xcode's Swift.
-# collab-notify.exe needs the .NET SDK (brew install dotnet) and is skipped
-# with a warning if it is missing, rather than silently shipping a Windows
-# build with no popups in it.
+# The Mac half needs Rust and Xcode's Swift. The Windows half needs the
+# x86_64-pc-windows-gnu Rust target and the .NET SDK, and is skipped with a
+# warning if either is missing rather than shipping a half-built Windows folder.
 set -e
 cd "$(dirname "$0")"
-
-rm -rf dist
 mkdir -p dist/macos dist/windows
 
-echo "→ go"
-GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/macos/collab   .
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/windows/collab.exe .
-cp dist/macos/collab ./collab            # for running out of the source tree
+echo "→ core (Rust)"
+( cd core && cargo build --release --quiet )
+cp core/target/release/collab dist/macos/collab
 
-echo "→ collab.app (Swift)"
-# Deliberately not copied into the source tree: two bundles sharing an
-# identifier confuses LaunchServices about which one a click should wake.
-# Running ./collab out of here finds the installed one in ~/Applications.
-notify/mac/build.sh "$PWD/dist/macos/collab.app" >/dev/null && echo "  built dist/macos/collab.app"
+echo "→ Collab.app (Swift)"
+app/mac/build.sh "$PWD/dist/macos/Collab.app" >/dev/null && echo "  built dist/macos/Collab.app"
 
-echo "→ collab-notify.exe (C#)"
+echo "→ windows"
+if rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu; then
+  ( cd core && cargo build --release --quiet --target x86_64-pc-windows-gnu )
+  cp core/target/x86_64-pc-windows-gnu/release/collab.exe dist/windows/collab.exe
+  echo "  built dist/windows/collab.exe"
+else
+  echo "  SKIPPED collab.exe — run: rustup target add x86_64-pc-windows-gnu && brew install mingw-w64" >&2
+fi
 if notify/windows/build.sh "$PWD/dist/windows" >/dev/null 2>&1; then
   echo "  built dist/windows/collab-notify.exe"
 else
-  echo "  SKIPPED — no .NET SDK. Windows gets no popups until you run:" >&2
-  echo "           brew install dotnet && ./build.sh" >&2
+  echo "  SKIPPED collab-notify.exe — needs: brew install dotnet" >&2
 fi
 
 echo
-du -sh dist/macos dist/windows
+du -sh dist/macos dist/windows 2>/dev/null

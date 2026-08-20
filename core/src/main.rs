@@ -18,7 +18,8 @@ mod wire;
 
 const USAGE: &str = "usage:
   collab serve                          run the server (one machine only)
-  collab watch [-json] [-notify]        stream messages — this is what Monitor runs
+  collab watch [-json] [-notify] [-all] [-since N] [-no-save]
+                                        stream messages — this is what Monitor runs
   collab post \"message\" [-ai]           send a chat message
   collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\"
   collab log [-changes] [-all]          history
@@ -61,7 +62,10 @@ fn main() {
         "watch" => {
             let as_json = take_switch(&mut args, "-json");
             let popups = take_switch(&mut args, "-notify");
-            client::watch(as_json, popups)
+            let all = take_switch(&mut args, "-all");
+            let no_save = take_switch(&mut args, "-no-save");
+            let since = take_flag(&mut args, "-since").and_then(|v| v.parse().ok());
+            client::watch(as_json, popups, since, !no_save, all)
         }
         "post" => {
             let ai = take_switch(&mut args, "-ai");
@@ -77,7 +81,13 @@ fn main() {
             take_switch(&mut args, "-changes"),
             take_switch(&mut args, "-all"),
         ),
-        "who" => config::who(),
+        "who" => {
+            if take_switch(&mut args, "-json") {
+                config::who_json()
+            } else {
+                config::who()
+            }
+        }
         "key" => client::key_cmd(take_switch(&mut args, "-new")),
         "test-notify" => notify::test_notify(),
         "mcp" => mcp::run(),

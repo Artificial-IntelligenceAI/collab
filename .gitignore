@@ -1,14 +1,13 @@
 # Built in one command; see build.sh.
-collab
-collab.exe
-collab-macos-arm64
-collab.app/
 dist/
 *.out
 
-# generated from notify/mac/icon.swift
-notify/mac/collab.icns
-notify/mac/icon-preview.png
+# stray builds
+/collab
+/collab.exe
+
+# generated from app/mac/icon.swift
+app/mac/collab.icns
 notify/windows/collab.png
 
 # C# build leftovers

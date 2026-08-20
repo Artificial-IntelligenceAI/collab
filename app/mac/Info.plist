@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>                <string>collab</string>
+  <key>CFBundleDisplayName</key>         <string>collab</string>
+  <!-- Deliberately not com.tankun.collab: macOS cached "this bundle has no
+       icon" against that identifier from the very first build, which genuinely
+       had none, and the system icon cache cannot be cleared without a password.
+       A fresh identifier is the way past it. -->
+  <key>CFBundleIdentifier</key>          <string>com.tankun.collab.app</string>
+  <key>CFBundleExecutable</key>          <string>Collab</string>
+  <key>CFBundleIconFile</key>            <string>collab.icns</string>
+  <key>CFBundlePackageType</key>         <string>APPL</string>
+  <key>CFBundleShortVersionString</key>  <string>3.0</string>
+  <key>CFBundleVersion</key>             <string>3</string>
+  <key>LSMinimumSystemVersion</key>      <string>14.0</string>
+  <!-- Menu bar only: a popup should not put an icon in the Dock. -->
+  <key>LSUIElement</key>                 <true/>
+  <!-- collab://test asks the app for a test notification, collab://open?channel=…
+       brings up the window. The CLI cannot raise a notification itself: macOS
+       attributes one to a bundle's main executable, and the CLI is not it. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>    <string>com.tankun.collab</string>
+      <key>CFBundleURLSchemes</key> <array><string>collab</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

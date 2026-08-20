@@ -9,14 +9,21 @@ use crate::config;
 use crate::msg::Msg;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+#[cfg(not(target_os = "macos"))]
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 /// A machine waking from sleep is replayed everything it missed at once, and
 /// forty popups in a row is not a notification, it is a punishment. Arrivals
 /// are collected until the channel goes quiet.
+#[cfg(not(target_os = "macos"))]
 const QUIET: Duration = Duration::from_millis(700);
 
+/// On macOS this is Collab.app, which raises notifications itself: macOS
+/// attributes a notification to a bundle's main executable, so a second binary
+/// inside the same bundle is refused outright — and this binary has no bundle
+/// at all. On Windows it is the standalone toast helper.
 pub fn find_notifier() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
@@ -29,16 +36,38 @@ pub fn find_notifier() -> Option<PathBuf> {
             config::home("Applications"),
             PathBuf::from("/Applications"),
         ] {
-            candidates.push(base.join("Collab.app/Contents/MacOS/collab-notify"));
-            candidates.push(base.join("collab.app/Contents/MacOS/collab-notify"));
+            candidates.push(base.join("Collab.app"));
         }
     } else if cfg!(target_os = "windows") {
         candidates.push(dir.join("collab-notify.exe"));
         candidates.push(dir.join("notify/collab-notify.exe"));
     }
-    candidates.into_iter().find(|p| p.is_file())
+    candidates.into_iter().find(|p| p.exists())
 }
 
+/// Hands a request to the app — the only thing here allowed to raise one.
+/// `-g` keeps it from stealing focus.
+#[cfg(target_os = "macos")]
+fn ask_app(url: &str) -> std::io::Result<()> {
+    match Command::new("open").args(["-g", url]).status() {
+        Ok(s) if s.success() => Ok(()),
+        Ok(_) => Err(std::io::Error::other("Collab.app did not answer")),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn ensure_app_running() -> bool {
+    let Some(app) = find_notifier() else { return false };
+    Command::new("open")
+        .args(["-g", "-a"])
+        .arg(&app)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
 fn gui_url() -> String {
     format!(
         "http://127.0.0.1:{}",
@@ -46,6 +75,7 @@ fn gui_url() -> String {
     )
 }
 
+#[cfg(not(target_os = "macos"))]
 fn ellipsis(s: &str, n: usize) -> String {
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= n {
@@ -64,7 +94,20 @@ impl Notifier {
         if !config::notify_enabled() {
             return None;
         }
-        let (tx, rx) = sync_channel::<Msg>(512);
+
+        // On macOS the app watches the channel itself and posts its own
+        // notifications, so the right thing here is to make sure it is running
+        // and then stay out of the way — two notifiers would double every popup.
+        #[cfg(target_os = "macos")]
+        {
+            let _ = (me, helper);
+            ensure_app_running();
+            None
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let (tx, rx) = sync_channel::<Msg>(512);
         std::thread::spawn(move || {
             let mut pending: Vec<Msg> = Vec::new();
             let mut warned = false;
@@ -95,7 +138,8 @@ impl Notifier {
                 }
             }
         });
-        Some(Notifier { tx })
+            Some(Notifier { tx })
+        }
     }
 
     pub fn send(&self, m: &Msg) {
@@ -103,6 +147,7 @@ impl Notifier {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn raise(
     helper: &PathBuf,
     title: &str,
@@ -142,6 +187,7 @@ fn raise(
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
     match ms.len() {
         0 => {}
@@ -199,14 +245,32 @@ fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
     }
 }
 
+/// macOS: the app is what posts notifications, so ask it.
+#[cfg(target_os = "macos")]
+pub fn test_notify() {
+    let Some(app) = find_notifier() else {
+        eprintln!("collab: Collab.app is not installed — run ./install.sh");
+        std::process::exit(1);
+    };
+    println!("asking {} to post one", app.display());
+    if !ensure_app_running() {
+        eprintln!("collab: could not start Collab.app");
+        std::process::exit(1);
+    }
+    std::thread::sleep(Duration::from_millis(700)); // let it finish launching
+    match ask_app("collab://test") {
+        Ok(()) => println!("sent — it should be on screen now (and in Notification Centre)"),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn test_notify() {
     let Some(h) = find_notifier() else {
-        eprintln!("collab: no notifier installed for this platform");
-        if cfg!(target_os = "macos") {
-            eprintln!("        put Collab.app next to the collab binary, or in ~/Applications");
-        } else {
-            eprintln!("        put collab-notify.exe next to collab.exe");
-        }
+        eprintln!("collab: no notifier installed — put collab-notify.exe next to collab.exe");
         std::process::exit(1);
     };
     println!("using {}", h.display());
@@ -220,6 +284,6 @@ pub fn test_notify() {
         &mut warned,
     );
     if !warned {
-        println!("sent — it should be on screen now (and in Notification Centre)");
+        println!("sent — it should be on screen now (and in the Action Centre)");
     }
 }

@@ -150,6 +150,18 @@ pub fn lock_down(path: &std::path::Path) {
     let _ = path;
 }
 
+/// The same answers as `who`, for the app.
+pub fn who_json() {
+    let j = serde_json::json!({
+        "name": name(),
+        "channel": channel(),
+        "addr": addr(),
+        "hasKey": key().is_some(),
+        "notifier": crate::notify::find_notifier().map(|p| p.display().to_string()),
+    });
+    println!("{j}");
+}
+
 pub fn who() {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "name     {:<28} {}", name(), source("COLLAB_NAME"));
@@ -170,7 +182,7 @@ pub fn who() {
             );
         }
         None => {
-            let _ = writeln!(out, "key      {:<28} {}", "MISSING", "run: collab key -new");
+            let _ = writeln!(out, "key      {:<28} run: collab key -new", "MISSING");
         }
     }
     match crate::notify::find_notifier() {
@@ -185,8 +197,8 @@ pub fn who() {
         None => {
             let _ = writeln!(
                 out,
-                "popups   {:<28} {}",
-                "unavailable", "no notifier installed"
+                "popups   {:<28} no notifier installed",
+                "unavailable"
             );
         }
     }

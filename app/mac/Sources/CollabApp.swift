@@ -1,0 +1,180 @@
+// collab — the Mac app. Lives in the menu bar, because notifications should
+// arrive whether or not you have a window open, and a window you have to keep
+// open is a window you will close.
+import AppKit
+import SwiftUI
+import UserNotifications
+
+@MainActor
+final class AppState: ObservableObject {
+    static let shared = AppState()
+    let core = Core()
+    /// Registered by SwiftUI once it exists; AppKit alone cannot open a
+    /// Window scene by id.
+    var openMainWindow: (() -> Void)?
+
+    func showWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let open = openMainWindow {
+            open()
+        } else if let w = NSApp.windows.first(where: { $0.canBecomeKey }) {
+            w.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+
+final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching(_ note: Notification) {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        Task { @MainActor in
+            let state = AppState.shared
+            state.core.onArrival = { [weak state] batch, wasBacklog in
+                guard let state else { return }
+                // Everything replayed on first connect is history. Announcing
+                // it would mean a popup for every message sent while the
+                // machine was asleep, which is not a notification but a
+                // punishment.
+                guard !wasBacklog else { return }
+                Notifier.post(batch: batch, me: state.core.me)
+            }
+            state.core.start()
+        }
+    }
+
+    /// The CLI cannot post a notification itself — macOS attributes one to the
+    /// bundle's main executable, and a second binary inside the same bundle is
+    /// refused. So `collab test-notify` asks here instead.
+    func application(_ app: NSApplication, open urls: [URL]) {
+        for url in urls {
+            switch url.host {
+            case "test":
+                let c = UNMutableNotificationContent()
+                c.title = "collab"
+                c.subtitle = "test"
+                c.body = "If you can see this, notifications work."
+                c.sound = .default
+                UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+            case "open":
+                Task { @MainActor in AppState.shared.showWindow() }
+            default:
+                break
+            }
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
+        false // closing the window is not quitting; the popups carry on
+    }
+
+    /// A click should land where the message came from — the way clicking a
+    /// WhatsApp notification opens that conversation, not the app in general.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        Task { @MainActor in
+            AppState.shared.showWindow()
+            done()
+        }
+    }
+
+    /// Show it even while the app is frontmost — the window may be on another
+    /// Space, or behind Roblox Studio.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .sound])
+    }
+}
+
+enum Notifier {
+    static func post(batch: [Msg], me: String) {
+        // Your own words do not need announcing back to you — but your own
+        // AI's do. A name belongs to a machine, so without the second test
+        // this would also silence the assistant sitting next to you.
+        let worth = batch.filter { $0.isAI || $0.from.caseInsensitiveCompare(me) != .orderedSame }
+        guard !worth.isEmpty else { return }
+
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+
+        if worth.count == 1 {
+            let m = worth[0]
+            content.title = m.who
+            content.subtitle = m.isChange ? "\(m.action ?? "") · \(m.target ?? "")" : "#\(m.channel)"
+            content.body = m.text
+        } else {
+            var senders: [String] = []
+            for m in worth where !senders.contains(m.who) { senders.append(m.who) }
+            let changes = worth.filter(\.isChange).count
+            let last = worth[worth.count - 1]
+            content.title = senders.count > 2 ? "collab" : senders.joined(separator: " & ")
+            content.subtitle = changes > 0
+                ? "\(worth.count) new on #\(last.channel) · \(changes) change\(changes == 1 ? "" : "s")"
+                : "\(worth.count) new on #\(last.channel)"
+            content.body = "\(last.who): \(last.line)"
+        }
+        content.userInfo = ["channel": worth[worth.count - 1].channel]
+
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+@main
+struct CollabApp: App {
+    @NSApplicationDelegateAdaptor(Delegate.self) var delegate
+    @ObservedObject private var state = AppState.shared
+
+    var body: some Scene {
+        Window("collab", id: "main") {
+            ContentView(core: state.core)
+                .frame(minWidth: 720, minHeight: 420)
+        }
+        .defaultSize(width: 1000, height: 640)
+
+        MenuBarExtra {
+            MenuContent(core: state.core)
+        } label: {
+            MenuLabel(core: state.core)
+        }
+    }
+}
+
+/// The label exists from launch, which makes it the one reliable place to
+/// borrow SwiftUI's window-opening action for AppKit to use later.
+struct MenuLabel: View {
+    @ObservedObject var core: Core
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: core.connected
+              ? "bubble.left.and.bubble.right"
+              : "bubble.left.and.exclamationmark.bubble.right")
+            .onAppear { AppState.shared.openMainWindow = { openWindow(id: "main") } }
+    }
+}
+
+struct MenuContent: View {
+    @ObservedObject var core: Core
+
+    var body: some View {
+        Button("Open collab") { AppState.shared.showWindow() }
+            .keyboardShortcut("o")
+        Divider()
+        if let fatal = core.fatal {
+            Text(fatal)
+        } else {
+            Text(core.connected
+                 ? "Connected · \(core.serverAddr)"
+                 : "DISCONNECTED from \(core.serverAddr) — retrying")
+            Text("\(core.me) on #\(core.homeChannel)")
+        }
+        Divider()
+        Button("Quit collab") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
+    }
+}

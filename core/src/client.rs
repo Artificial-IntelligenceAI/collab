@@ -98,7 +98,12 @@ where
     }
 }
 
-pub fn watch(as_json: bool, popups: bool) -> ! {
+/// `since`: where to start, instead of ~/.collab-seen.
+/// `save`: whether to write our place back to ~/.collab-seen. The app passes
+/// false — two watchers sharing that one file would overwrite each other's
+/// place, and the Monitor's watcher is the one that owns it.
+/// `all`: every channel rather than only this one; the views do the filtering.
+pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: bool) -> ! {
     let mut warned = false;
     let mut first = true;
     let notifier = if popups {
@@ -106,12 +111,17 @@ pub fn watch(as_json: bool, popups: bool) -> ! {
     } else {
         None
     };
-    let channel = config::channel();
+    let channel = if all { String::new() } else { config::channel() };
     let addr = config::addr();
+
+    // Our place in the sequence, held here rather than re-read from the file,
+    // so a reconnect resumes from what we actually have and not from zero.
+    let cursor = std::sync::atomic::AtomicI64::new(since.unwrap_or_else(last_seen));
+    let read_cursor = || cursor.load(std::sync::atomic::Ordering::SeqCst);
 
     stream(
         &channel,
-        last_seen,
+        read_cursor,
         |m| {
             if as_json {
                 if let Ok(s) = serde_json::to_string(&serde_json::json!({"type":"msg","msg":m})) {
@@ -121,7 +131,10 @@ pub fn watch(as_json: bool, popups: bool) -> ! {
                 println!("[{}] {}: {}", m.channel, m.who(), m.line());
             }
             let _ = std::io::stdout().flush();
-            save_seen(m.seq, &mut warned);
+            cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
+            if save {
+                save_seen(m.seq, &mut warned);
+            }
             if let Some(n) = &notifier {
                 n.send(m);
             }

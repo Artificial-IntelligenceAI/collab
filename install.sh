@@ -1,24 +1,24 @@
 #!/bin/sh
-# Installs collab on this Mac: the binary, the notifier, and the LaunchAgent
-# that keeps the server running. Safe to re-run.
+# Installs collab on this Mac: the core, the app, and the LaunchAgent that
+# keeps the server running. Safe to re-run; this is also how you upgrade.
 set -e
 cd "$(dirname "$0")"
-[ -d dist/macos ] || ./build.sh
+[ -f dist/macos/collab ] || ./build.sh
 
 BIN="$HOME/.local/bin"
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 mkdir -p "$BIN" "$HOME/Applications" "$HOME/Library/LaunchAgents"
 
-# Delete before copying, every time. Writing over a Mach-O binary in place
-# leaves macOS holding a stale code signature for that file, and the kernel
-# then kills it on sight — with no error message at all, which makes it a
-# miserable thing to diagnose. A fresh file gets a fresh signature.
+# Delete before copying, every time. Writing over a signed binary in place
+# leaves macOS holding a stale code signature, and the kernel then kills the
+# result on exec with no error message at all — a miserable thing to diagnose.
 rm -f  "$BIN/collab"
 cp     dist/macos/collab "$BIN/collab"
 
-rm -rf "$HOME/Applications/collab.app"
-cp -R  dist/macos/collab.app "$HOME/Applications/collab.app"
-"$LSREG" -f "$HOME/Applications/collab.app"   # so a click can wake it
+osascript -e 'quit app "collab"' 2>/dev/null || true
+rm -rf "$HOME/Applications/Collab.app"
+cp -R  dist/macos/Collab.app "$HOME/Applications/Collab.app"
+"$LSREG" -f "$HOME/Applications/Collab.app"
 
 cp com.tankun.collab.plist "$HOME/Library/LaunchAgents/"
 launchctl bootout   "gui/$(id -u)/com.tankun.collab" 2>/dev/null || true
@@ -26,11 +26,11 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.tankun.collab
 
 echo "installed:"
 echo "  $BIN/collab"
-echo "  $HOME/Applications/collab.app"
+echo "  $HOME/Applications/Collab.app"
 echo "  server running under launchd (starts at login, restarts if it dies)"
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo; echo "note: $BIN is not on your PATH — add it, or use the full path" ;;
 esac
 echo
-echo "check it:  collab test-notify"
+"$BIN/collab" who || true
