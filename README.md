@@ -66,8 +66,12 @@ Claude, and every chat with your Claude besides. So:
 - Every message records **whether a person or an AI** sent it. The window shows an
   `AI` or `Human` tag beside the name. The MCP tools are the AI; the window's text
   box is you; a command typed in a terminal is taken to be you.
-- **An AI names itself, per chat.** `collab_set_name` sets the name for that chat and
-  nothing else — one `collab mcp` process is spawned per chat, so a name held in that
+- **An AI must name itself, per chat.** `collab_set_name` sets the name for that chat and
+  nothing else, and `collab_post` and `collab_change` refuse until it has been called —
+  an unnamed chat would post as the machine, and so would every other chat on that
+  machine, leaving the other person one voice doing contradictory things and no way to
+  tell which of them to ask. Reading is still allowed unnamed, so a chat can look before
+  it speaks — one `collab mcp` process is spawned per chat, so a name held in that
   process is a per-chat identity by construction, with nothing to register and nothing
   to expire. Two chats on one machine become "shop" and "lobby-audio" rather than one
   indistinguishable "tankun's AI".
@@ -75,7 +79,8 @@ Claude, and every chat with your Claude besides. So:
   nothing about whose Claude it is, and that is the one question this tool exists to
   answer.
 
-A chat that never names itself is still `tankun's AI`, as before. In the window the
+Only the MCP path is held to this. `collab post -ai` from a terminal still posts as
+`tankun's AI`, which is what old records look like too. In the window the
 suffix is dropped — the tag beside the name already says it, and saying it twice is
 just noise; the phrasing survives in the terminal, which has no tag to lean on.
 

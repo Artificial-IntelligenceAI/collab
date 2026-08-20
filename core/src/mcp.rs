@@ -17,7 +17,8 @@ fn tools() -> Value {
       {
         "name": "collab_set_name",
         "description": "Choose the name you appear under on the shared channel, for this chat only. \
-Call this once, early, before you post anything. Pick something short that says which part of the \
+Required before you can post anything at all — collab_post and collab_change refuse \
+until you have. Call it once, early. Pick something short that says which part of the \
 project you are working on — \"shop\", \"lobby-audio\" — so the other person can tell your messages \
 apart from a different chat running on the same machine. Without it you appear as \
 \"<machine>'s AI\", which every chat on this machine would share. The machine you are on is \
@@ -31,7 +32,7 @@ recorded either way, so nobody has to guess whose Claude spoke.",
         "description": "Send a chat message to the other person's Claude on the shared channel. \
     Use it to say what you are about to touch, to ask them something, or to answer them. \
     For recording something you actually changed, use collab_change instead. \
-If you have not called collab_set_name yet in this chat, do that first.",
+Requires collab_set_name to have been called in this chat first; without it this is refused.",
         "inputSchema": {"type":"object","properties":{
             "message": {"type":"string","description":"What to tell them."}},
           "required":["message"]}
@@ -42,7 +43,7 @@ If you have not called collab_set_name yet in this chat, do that first.",
     Changes view — a git log for a project that cannot use git, because Roblox saves a binary .rbxl. \
     Call it right after you make a change, once per script or instance you touched. \
     Only record what you actually did; never infer an entry from what someone said. \
-If you have not called collab_set_name yet in this chat, do that first.",
+Requires collab_set_name to have been called in this chat first; without it this is refused.",
         "inputSchema": {"type":"object","properties":{
             "action": {"type":"string","enum": ACTIONS, "description":"What you did: added, edited, removed or renamed."},
             "target": {"type":"string","description":"Which script or instance, as a path — e.g. ServerScriptService/ShopHandler."},
@@ -65,6 +66,13 @@ If you have not called collab_set_name yet in this chat, do that first.",
       }
     ])
 }
+
+/// Refusing is the point. An unnamed chat posts as the machine, and every other
+/// chat on that machine posts as the machine too — so the other person sees one
+/// voice doing contradictory things and cannot tell which of them to ask.
+const NEEDS_NAME: &str = "REFUSED: this chat has no name yet. \
+Call collab_set_name first — something short saying which part of the project you are \
+working on — then send this again. Nothing was posted.";
 
 fn text(s: String) -> Value {
     json!({"content":[{"type":"text","text": s}]})
@@ -93,7 +101,12 @@ pub fn run() {
                     "protocolVersion": ver,
                     // No resources, no subscriptions — they demonstrably do nothing.
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name":"collab","version":"3.0.0"}
+                    "serverInfo": {"name":"collab","version":"3.0.0"},
+                    "instructions": "Call collab_set_name once, before posting anything. \
+Until you do, collab_post and collab_change will refuse: a name in collab belongs to a \
+machine, so without one every chat on this machine is the same indistinguishable voice, \
+and the other person cannot tell which of them changed what. Pick something short that \
+says which part of the project this chat is working on."
                 }))
             }
             "tools/list" => Some(json!({"tools": tools()})),
@@ -152,6 +165,9 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
             ))
         }
         "collab_post" => {
+            let Some(_) = session_name.as_deref() else {
+                return text(NEEDS_NAME.into());
+            };
             let m = arg(req, "message").trim().replace('\n', " ");
             if m.is_empty() {
                 return text("nothing to send — message was empty".into());
@@ -168,6 +184,9 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
             }
         }
         "collab_change" => {
+            let Some(_) = session_name.as_deref() else {
+                return text(NEEDS_NAME.into());
+            };
             let action = arg(req, "action").trim().to_lowercase();
             let target = arg(req, "target").trim().to_string();
             let summary = arg(req, "summary").trim().replace('\n', " ");
