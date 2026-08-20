@@ -27,6 +27,14 @@ swiftc -O -target arm64-apple-macos14 -parse-as-library \
 
 # Ad-hoc signature with a stable identifier, so the notification permission you
 # grant survives every rebuild instead of resetting each time.
+# The command-line half travels inside the app. Dragging Collab.app to
+# Applications has to be enough on its own, and everything else here — the
+# server, the watcher, the MCP server — is that binary.
+CORE="$PWD/../../dist.noindex/macos/collab"
+[ -f "$CORE" ] || CORE="$PWD/../../core/target/release/collab"
+cp "$CORE" "$OUT/Contents/Resources/collab"
+chmod +x "$OUT/Contents/Resources/collab"
+
 codesign --force --sign - --identifier com.tankun.collab.app "$OUT"
 codesign --verify --strict "$OUT"
 echo "built and signed: $OUT"

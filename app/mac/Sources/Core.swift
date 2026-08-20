@@ -148,7 +148,12 @@ final class Core: ObservableObject {
 
     static func binary() -> String? {
         var candidates: [String] = []
-        // Beside the .app, first — a bundle and its core should travel together.
+        // Inside the bundle first: an app dragged to Applications carries its
+        // own core, so there is nothing else to install for it to work.
+        if let inside = Bundle.main.resourceURL?.appendingPathComponent("collab").path {
+            candidates.append(inside)
+        }
+        // Then beside the .app, which is where a build tree keeps it.
         let appDir = Bundle.main.bundleURL.deletingLastPathComponent().path
         candidates.append(appDir + "/collab")
         let home = FileManager.default.homeDirectoryForCurrentUser.path

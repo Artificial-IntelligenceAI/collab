@@ -262,6 +262,19 @@ reading the channel.
 A name ending in `.local` often does not resolve from Windows. Setup says so when it
 fails, rather than leaving you to guess.
 
+## The disk image
+
+    ./dmg.sh
+
+Produces `dist.noindex/collab.dmg` — open it, drag Collab.app to Applications, done.
+The command-line half travels inside the app, so there is nothing else to install and
+nothing left behind if it is dragged to the bin. Open the app afterwards and run
+`collab setup`, or point it at a server.
+
+The window is laid out with the app on the left and Applications on the right. The
+custom background does not currently render on macOS 26 — it is set without error and
+recorded, and still does not appear. The image works regardless; it just looks plain.
+
 ## Build and install
 
     ./build.sh      # everything, into dist.noindex/
