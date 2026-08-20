@@ -12,6 +12,7 @@ can tell each other what they just did.
     collab channels [-keys]   channels this machine can open
     collab channel add ...    join a channel someone sent you
     collab channel delete ..  close one everywhere (only where it was made)
+    collab update [-yes]      check for a signed update, and install it
     collab test-notify        check that popup notifications work
     collab mcp                run as an MCP server (tools only)
 
@@ -272,6 +273,38 @@ necessarily have `~/.local/bin` on its PATH. No `env` block is needed — name,
 channel and key all come from `~/.collab-config`, and the core looks at `HOME` and
 then `USERPROFILE`, so the same arrangement works on both machines.
 
+## Updates
+
+There is a **Check for Updates…** item in the menu bar. It fetches a release, checks
+its signature, tells you what would change, and installs only if you say so.
+
+The dialog is not what makes this safe. It asks you to approve something you cannot
+inspect, and you would click through it for somebody else's build as readily as for
+your own. What makes it safe is that **the release is signed by a key that lives
+nowhere near where it is published**: the public key is compiled into collab, the
+private key sits in a password manager, and anything that does not verify is refused
+before you are asked. Taking over the account the release is published from is not
+enough.
+
+Nothing is checked or downloaded until both halves exist:
+
+    update_url = https://…/latest      # in ~/.collab-config
+    PUBLIC_KEY                         # in core/src/release.rs
+
+Making a release:
+
+    collab release keygen              # once, ever — private key into your password manager
+    ./release.sh 3.1.0 "what changed"  # builds, then asks for the key on stdin
+
+The key is read from stdin rather than an argument, because an argument is visible in
+the process list while it runs and in shell history afterwards. Every file is hashed
+into a manifest, the manifest is signed, and the update checks each file against it —
+so a release where one artefact was swapped fails on that artefact, not merely at the
+front door.
+
+If the private key is ever lost, updates stop until you hand-deliver a build carrying a
+new public key. If it leaks, do the same, urgently.
+
 ## Windows
 
 Not finished. The Rust core cross-compiles once the target is installed:
@@ -285,6 +318,7 @@ machine here. A native window for that side is still to do.
 
     build.sh    builds both machines' worth of it into dist.noindex/
     install.sh  installs this Mac's half, and upgrades it
+    release.sh  builds and signs a release
     com.tankun.collab.plist      LaunchAgent for the server
     com.tankun.collab.app.plist  LaunchAgent for the app
 
@@ -292,6 +326,7 @@ machine here. A native window for that side is still to do.
     core/src/config.rs   settings, ~/.collab-config, `collab who`
     core/src/channels.rs channels and their keys
     core/src/files.rs    the file store, kept by content
+    core/src/release.rs  signing a release, and verifying one before it is installed
     core/src/crypto.rs   frame sealing
     core/src/wire.rs     the connection: a challenge, then nothing in the clear
     core/src/server.rs   the hub: sequence numbers, subscribers, replay-on-connect

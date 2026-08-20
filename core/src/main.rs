@@ -15,6 +15,7 @@ mod history;
 mod mcp;
 mod msg;
 mod notify;
+mod release;
 mod server;
 mod wire;
 
@@ -30,6 +31,7 @@ const USAGE: &str = "usage:
   collab channel add <name> <key>       join a channel someone sent you
   collab channel delete <name>          close it everywhere (only where it was made)
   collab channel forget <name>          leave it (drops your key only)
+  collab update [-yes]                  check for a signed update, and install it
   collab test-notify                    check that popup notifications work
   collab mcp                            run as an MCP server";
 
@@ -105,6 +107,32 @@ fn main() {
                 channel.as_deref(),
             )
         }
+        "update" => release::update_cmd(
+            take_switch(&mut args, "-yes"),
+            take_switch(&mut args, "-json"),
+        ),
+        "release" => match args.first().map(String::as_str) {
+            Some("keygen") => release::keygen(),
+            Some("sign") => {
+                let version = take_flag(&mut args, "-version").unwrap_or_default();
+                let notes = take_flag(&mut args, "-notes").unwrap_or_default();
+                let key = take_flag(&mut args, "-key").unwrap_or_default();
+                let dir = args.get(1).map(String::as_str).unwrap_or("");
+                if dir.is_empty() || version.is_empty() || key.is_empty() {
+                    eprintln!("usage: collab release sign <dir> -version X.Y.Z -key <private> [-notes \"...\"]");
+                    std::process::exit(2);
+                }
+                if let Err(e) = release::sign_release(std::path::Path::new(dir), &version, &notes, &key) {
+                    eprintln!("collab: {e}");
+                    std::process::exit(1);
+                }
+            }
+            _ => {
+                eprintln!("usage: collab release keygen");
+                eprintln!("       collab release sign <dir> -version X.Y.Z -key <private>");
+                std::process::exit(2);
+            }
+        },
         "who" => {
             if take_switch(&mut args, "-json") {
                 config::who_json()

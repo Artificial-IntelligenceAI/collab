@@ -182,6 +182,7 @@ struct MenuContent: View {
     var body: some View {
         Button("Open collab") { AppState.shared.showWindow() }
             .keyboardShortcut("o")
+        Button("Check for Updates…") { Updater.checkForUpdates() }
         Divider()
         if let fatal = core.fatal {
             Text(fatal)
