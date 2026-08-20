@@ -140,21 +140,26 @@ struct Banner: View {
     }
 }
 
-/// The name, plus a small mark when it was the machine's AI rather than its
-/// owner. Both share a colour; it is the same household.
+/// The name, what kind of thing it is, and — when the name does not give it
+/// away — which machine. An AI names itself per chat, so "shop" could be either
+/// person's Claude, and that is the one question this tool exists to answer.
 struct Who: View {
     let name: String
     let isAI: Bool
+    let machine: String?
+
     var body: some View {
         HStack(spacing: 4) {
             Text(name).fontWeight(.semibold).foregroundStyle(Sol.forName(name))
-            if isAI {
-                Text("AI")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Sol.forName(name), lineWidth: 1))
-                    .foregroundStyle(Sol.forName(name))
-                    .opacity(0.75)
+            Text(isAI ? "AI" : "Human")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .overlay(RoundedRectangle(cornerRadius: 3)
+                    .stroke(isAI ? Sol.forName(name) : Sol.fgDim, lineWidth: 1))
+                .foregroundStyle(isAI ? Sol.forName(name) : Sol.fgDim)
+                .opacity(isAI ? 0.8 : 0.55)
+            if let machine {
+                Text(machine).font(.system(size: 10)).foregroundStyle(Sol.fgDim)
             }
         }
     }
@@ -206,7 +211,7 @@ struct ChatList: View {
                 .font(.system(size: 11)).monospacedDigit()
                 .foregroundStyle(Sol.fgDim)
                 .frame(width: 54, alignment: .trailing)
-            Who(name: m.from, isAI: m.isAI)
+            Who(name: m.who, isAI: m.isAI, machine: m.machine)
             if m.isChange {
                 ActionBadge(action: m.action ?? "edited")
                 Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
@@ -255,18 +260,19 @@ struct ChangesList: View {
         var id: Int64 { items[0].seq }
         var who: String
         var isAI: Bool
+        var machine: String?
         var items: [Msg]
     }
 
     private var groups: [Group] {
         var out: [Group] = []
         for m in messages {
-            if var last = out.last, last.who == m.from, last.isAI == m.isAI,
+            if var last = out.last, last.who == m.who, last.isAI == m.isAI,
                m.date.timeIntervalSince(last.items[last.items.count - 1].date) <= gap {
                 last.items.append(m)
                 out[out.count - 1] = last
             } else {
-                out.append(Group(who: m.from, isAI: m.isAI, items: [m]))
+                out.append(Group(who: m.who, isAI: m.isAI, machine: m.machine, items: [m]))
             }
         }
         return out.reversed() // newest first, like git log
@@ -285,7 +291,7 @@ struct ChangesList: View {
                                 .frame(width: 10, height: 10).padding(.top, 5)
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 10) {
-                                    Who(name: g.who, isAI: g.isAI)
+                                    Who(name: g.who, isAI: g.isAI, machine: g.machine)
                                     Text(span(g)).font(.system(size: 12)).foregroundStyle(Sol.fgDim)
                                 }
                                 ForEach(g.items) { m in

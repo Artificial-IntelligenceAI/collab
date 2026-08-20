@@ -57,7 +57,7 @@ impl Hub {
                 let _ = s.tx.try_send(m.clone());
             }
         }
-        println!("[{}] #{} {}: {}", m.channel, m.seq, m.who(), m.line());
+        println!("[{}] #{} {}: {}", m.channel, m.seq, m.label(), m.line());
     }
 }
 
@@ -160,6 +160,7 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 m.seq = 0;
                 m.channel = hello.channel.clone();
                 m.from = hello.name.clone();
+                m.host = hello.host.clone();
                 m.at = msg::now();
                 if m.kind != KIND_CHANGE {
                     m.kind = KIND_CHAT.into();

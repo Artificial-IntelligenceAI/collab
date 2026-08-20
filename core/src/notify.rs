@@ -193,10 +193,13 @@ fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
         0 => {}
         1 => {
             let m = &ms[0];
+            // The machine rides along in the title: a chat that named itself
+            // "shop" says nothing about whose Claude it is, and that is the
+            // question the popup has to answer.
             if m.is_change() {
                 raise(
                     helper,
-                    &m.who(),
+                    &m.label(),
                     &format!("{} · {}", m.action, m.target),
                     &ellipsis(&m.text, 180),
                     &m.channel,
@@ -205,7 +208,7 @@ fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
             } else {
                 raise(
                     helper,
-                    &m.who(),
+                    &m.label(),
                     &format!("#{}", m.channel),
                     &ellipsis(&m.text, 180),
                     &m.channel,
@@ -217,8 +220,8 @@ fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
             let mut senders: Vec<String> = Vec::new();
             let mut changes = 0;
             for m in ms {
-                if !senders.contains(&m.who()) {
-                    senders.push(m.who());
+                if !senders.contains(&m.label()) {
+                    senders.push(m.label());
                 }
                 if m.is_change() {
                     changes += 1;
@@ -239,7 +242,7 @@ fn flush(helper: &PathBuf, ms: &[Msg], warned: &mut bool) {
             } else {
                 format!("{n} new on #{}", last.channel)
             };
-            let body = ellipsis(&format!("{}: {}", last.who(), last.line()), 180);
+            let body = ellipsis(&format!("{}: {}", last.label(), last.line()), 180);
             raise(helper, &title, &sub, &body, &last.channel, warned);
         }
     }

@@ -34,6 +34,11 @@ pub struct Msg {
     /// "ai", or "" for a person.
     #[serde(default, skip_serializing_if = "empty")]
     pub via: String,
+    /// Which machine it came from. `from` is a display name an AI may choose
+    /// for itself, so without this you could not tell whose Claude spoke —
+    /// which is the one thing this tool exists to answer.
+    #[serde(default, skip_serializing_if = "empty")]
+    pub host: String,
     #[serde(default)]
     pub text: String,
     // change only
@@ -56,12 +61,38 @@ impl Msg {
         self.kind() == KIND_CHANGE
     }
 
-    /// The name to show: the machine's, or its AI's.
+    /// The name to show. An AI that has named itself is shown by that name; one
+    /// that has not is "<machine>'s AI", which is what it was before.
     pub fn who(&self) -> String {
-        if self.via == ACTOR_AI {
-            format!("{}'s AI", self.from)
+        if self.via != ACTOR_AI {
+            return self.from.clone();
+        }
+        // Records written before names existed carry no host: back then `from`
+        // was the machine, so that is what to say it belongs to.
+        if self.host.is_empty() {
+            return format!("{}'s AI", self.from);
+        }
+        if self.from.is_empty() || self.from == self.host {
+            return format!("{}'s AI", self.host);
+        }
+        self.from.clone()
+    }
+
+    /// Name plus machine, for anywhere there is no room for two columns —
+    /// a chat that named itself "shop" says nothing about whose Claude it is.
+    pub fn label(&self) -> String {
+        match self.machine() {
+            Some(h) => format!("{} ({h})", self.who()),
+            None => self.who(),
+        }
+    }
+
+    /// The machine, when it is not already obvious from the name.
+    pub fn machine(&self) -> Option<&str> {
+        if self.host.is_empty() || self.who().contains(&self.host) {
+            None
         } else {
-            self.from.clone()
+            Some(&self.host)
         }
     }
 

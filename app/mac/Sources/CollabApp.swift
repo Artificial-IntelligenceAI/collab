@@ -103,12 +103,17 @@ enum Notifier {
 
         if worth.count == 1 {
             let m = worth[0]
-            content.title = m.who
+            // The machine rides along in the title: a chat that named itself
+            // "shop" says nothing about whose Claude it is.
+            content.title = m.machine.map { "\(m.who) (\($0))" } ?? m.who
             content.subtitle = m.isChange ? "\(m.action ?? "") · \(m.target ?? "")" : "#\(m.channel)"
             content.body = m.text
         } else {
             var senders: [String] = []
-            for m in worth where !senders.contains(m.who) { senders.append(m.who) }
+            for m in worth {
+                let label = m.machine.map { "\(m.who) (\($0))" } ?? m.who
+                if !senders.contains(label) { senders.append(label) }
+            }
             let changes = worth.filter(\.isChange).count
             let last = worth[worth.count - 1]
             content.title = senders.count > 2 ? "collab" : senders.joined(separator: " & ")

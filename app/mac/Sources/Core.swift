@@ -14,6 +14,9 @@ struct Msg: Codable, Identifiable, Hashable {
     var at: String
     var kind: String?
     var via: String?
+    /// Which machine it came from. `from` is a display name an AI may choose
+    /// for itself, so without this you could not tell whose Claude spoke.
+    var host: String?
     var text: String
     var action: String?
     var target: String?
@@ -21,7 +24,26 @@ struct Msg: Codable, Identifiable, Hashable {
     var id: Int64 { seq }
     var isChange: Bool { kind == "change" }
     var isAI: Bool { via == "ai" }
-    var who: String { isAI ? "\(from)'s AI" : from }
+
+    /// "AI" or "Human" — what the badge says.
+    var role: String { isAI ? "AI" : "Human" }
+
+    /// Just the name. The badge beside it says AI or Human, so spelling it out
+    /// as "tankun's AI" would be saying the same thing twice — that phrasing
+    /// exists for the terminal, which has no badge to lean on.
+    var who: String {
+        guard isAI else { return from }
+        // Records written before names existed carry no host: back then `from`
+        // was the machine.
+        guard let h = host, !h.isEmpty else { return from }
+        return (from.isEmpty || from == h) ? h : from
+    }
+
+    /// The machine, when the name does not already give it away.
+    var machine: String? {
+        guard let h = host, !h.isEmpty, !who.contains(h) else { return nil }
+        return h
+    }
 
     var date: Date {
         Msg.parser.date(from: at) ?? Msg.plainParser.date(from: at) ?? .distantPast

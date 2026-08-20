@@ -11,8 +11,12 @@ pub const PROTOCOL: u32 = 3;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Hello {
+    /// The display name to post under — an AI's chosen name, or the machine's.
     #[serde(default)]
     pub name: String,
+    /// The machine, always, whatever `name` says.
+    #[serde(default)]
+    pub host: String,
     #[serde(default)]
     pub channel: String,
     #[serde(default)]

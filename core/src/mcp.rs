@@ -15,10 +15,23 @@ use std::io::{BufRead, Write};
 fn tools() -> Value {
     json!([
       {
+        "name": "collab_set_name",
+        "description": "Choose the name you appear under on the shared channel, for this chat only. \
+Call this once, early, before you post anything. Pick something short that says which part of the \
+project you are working on — \"shop\", \"lobby-audio\" — so the other person can tell your messages \
+apart from a different chat running on the same machine. Without it you appear as \
+\"<machine>'s AI\", which every chat on this machine would share. The machine you are on is \
+recorded either way, so nobody has to guess whose Claude spoke.",
+        "inputSchema": {"type":"object","properties":{
+            "name": {"type":"string","description":"Short name for this chat, e.g. \"shop\"."}},
+          "required":["name"]}
+      },
+      {
         "name": "collab_post",
         "description": "Send a chat message to the other person's Claude on the shared channel. \
     Use it to say what you are about to touch, to ask them something, or to answer them. \
-    For recording something you actually changed, use collab_change instead.",
+    For recording something you actually changed, use collab_change instead. \
+If you have not called collab_set_name yet in this chat, do that first.",
         "inputSchema": {"type":"object","properties":{
             "message": {"type":"string","description":"What to tell them."}},
           "required":["message"]}
@@ -28,7 +41,8 @@ fn tools() -> Value {
         "description": "Record something you just changed, as a structured entry. This is what fills the \
     Changes view — a git log for a project that cannot use git, because Roblox saves a binary .rbxl. \
     Call it right after you make a change, once per script or instance you touched. \
-    Only record what you actually did; never infer an entry from what someone said.",
+    Only record what you actually did; never infer an entry from what someone said. \
+If you have not called collab_set_name yet in this chat, do that first.",
         "inputSchema": {"type":"object","properties":{
             "action": {"type":"string","enum": ACTIONS, "description":"What you did: added, edited, removed or renamed."},
             "target": {"type":"string","description":"Which script or instance, as a path — e.g. ServerScriptService/ShopHandler."},
@@ -57,6 +71,9 @@ fn text(s: String) -> Value {
 }
 
 pub fn run() {
+    // One `collab mcp` process is spawned per chat, so a name held here is a
+    // per-chat identity by construction — nothing to register, nothing to expire.
+    let mut session_name: Option<String> = None;
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines().map_while(Result::ok) {
@@ -80,7 +97,7 @@ pub fn run() {
                 }))
             }
             "tools/list" => Some(json!({"tools": tools()})),
-            "tools/call" => Some(call(&req)),
+            "tools/call" => Some(call(&req, &mut session_name)),
             "resources/list" => Some(json!({"resources": []})),
             "prompts/list" => Some(json!({"prompts": []})),
             "ping" => Some(json!({})),
@@ -104,7 +121,7 @@ fn arg<'a>(req: &'a Value, k: &str) -> &'a str {
         .unwrap_or("")
 }
 
-fn call(req: &Value) -> Value {
+fn call(req: &Value, session_name: &mut Option<String>) -> Value {
     let name = req
         .pointer("/params/name")
         .and_then(|v| v.as_str())
@@ -116,12 +133,34 @@ fn call(req: &Value) -> Value {
         .unwrap_or(20) as usize;
 
     match name {
+        "collab_set_name" => {
+            let chosen: String = arg(req, "name")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(24)
+                .collect();
+            if chosen.is_empty() {
+                return text("a name cannot be empty".into());
+            }
+            *session_name = Some(chosen.clone());
+            text(format!(
+                "you are \"{chosen}\" on #{} for this chat (on {})",
+                config::channel(),
+                config::name()
+            ))
+        }
         "collab_post" => {
             let m = arg(req, "message").trim().replace('\n', " ");
             if m.is_empty() {
                 return text("nothing to send — message was empty".into());
             }
-            match client::send(Msg { kind: KIND_CHAT.into(), via: ACTOR_AI.into(), text: m.clone(), ..Default::default() }) {
+            match client::send_full(
+                &config::channel(),
+                session_name.as_deref(),
+                Msg { kind: KIND_CHAT.into(), via: ACTOR_AI.into(), text: m.clone(), ..Default::default() },
+            ) {
                 Ok(()) => text(format!("sent: {m}")),
                 Err(e) => text(format!(
                     "could not reach the collab server at {} ({e}) — the other session did NOT get this",
@@ -146,7 +185,7 @@ fn call(req: &Value) -> Value {
                 text: summary.clone(),
                 ..Default::default()
             };
-            match client::send(m) {
+            match client::send_full(&config::channel(), session_name.as_deref(), m) {
                 Ok(()) => text(format!("recorded: {action} {target} — {summary}")),
                 Err(e) => text(format!(
                     "could not reach the collab server at {} ({e}) — the change was NOT recorded",
@@ -168,7 +207,7 @@ fn call(req: &Value) -> Value {
             }
             text(
                 h.iter()
-                    .map(|m| format!("#{} {}: {}", m.seq, m.who(), m.line()))
+                    .map(|m| format!("#{} {}: {}", m.seq, m.label(), m.line()))
                     .collect::<Vec<_>>()
                     .join("\n"),
             )
@@ -188,8 +227,8 @@ fn call(req: &Value) -> Value {
             let mut out = String::new();
             let mut who = String::new();
             for m in &ch {
-                if m.who() != who {
-                    who = m.who();
+                if m.label() != who {
+                    who = m.label();
                     let at = if m.at.len() >= 16 {
                         m.at[..16].replace('T', " ")
                     } else {

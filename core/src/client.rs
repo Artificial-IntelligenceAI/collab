@@ -60,6 +60,7 @@ where
                 on_status(true, since(), None);
                 let hello = Hello {
                     name: config::name(),
+                    host: config::name(),
                     channel: channel.to_string(),
                     since: since(),
                     mode: "watch".into(),
@@ -128,7 +129,7 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
                     println!("{s}");
                 }
             } else {
-                println!("[{}] {}: {}", m.channel, m.who(), m.line());
+                println!("[{}] {}: {}", m.channel, m.label(), m.line());
             }
             let _ = std::io::stdout().flush();
             cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
@@ -166,16 +167,26 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
     )
 }
 
-/// Delivers one message. The server stamps seq, from, at and channel.
+/// Delivers one message on $COLLAB_CHANNEL, under this machine's own name.
 pub fn send(m: Msg) -> std::io::Result<()> {
-    send_to(&config::channel(), m)
+    send_full(&config::channel(), None, m)
 }
 
-/// The same, on a channel you name — the window posts wherever it is looking.
-pub fn send_to(channel: &str, m: Msg) -> std::io::Result<()> {
+/// The same, under a display name of your own. An AI session names itself, so
+/// two chats on one machine are two voices rather than one — but the machine
+/// goes along regardless, because "which of us was that" has to stay answerable
+/// even when the chosen name says nothing about it.
+pub fn send_full(channel: &str, display: Option<&str>, m: Msg) -> std::io::Result<()> {
+    let host = config::name();
+    let name = display
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| host.clone());
     let mut conn = dial()?;
     conn.send(&Hello {
-        name: config::name(),
+        name,
+        host,
         channel: channel.to_string(),
         mode: "post".into(),
         since: 0,
@@ -256,6 +267,7 @@ pub fn fetch(channel: &str, since: i64) -> Vec<Msg> {
     let Ok(mut conn) = dial() else { return local() };
     let hello = Hello {
         name: config::name(),
+        host: config::name(),
         channel: channel.to_string(),
         since,
         mode: "fetch".into(),
@@ -288,7 +300,7 @@ pub fn show_log(only_changes: bool, all_channels: bool) {
         if only_changes && !m.is_change() {
             continue;
         }
-        println!("#{:<4} [{}] {}: {}", m.seq, m.hhmm(), m.who(), m.line());
+        println!("#{:<4} [{}] {}: {}", m.seq, m.hhmm(), m.label(), m.line());
     }
 }
 
