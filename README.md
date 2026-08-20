@@ -330,7 +330,6 @@ machine here. A native window for that side is still to do.
     install.sh  installs this Mac's half, and upgrades it
     release.sh  builds and signs a release
     com.tankun.collab.plist      LaunchAgent for the server
-    com.tankun.collab.app.plist  LaunchAgent for the app
 
     core/src/main.rs     command dispatch
     core/src/config.rs   settings, ~/.collab-config, `collab who`

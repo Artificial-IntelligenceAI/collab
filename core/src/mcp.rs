@@ -208,7 +208,13 @@ name keeps this chat apart from other chats on the same machine, which would oth
 one indistinguishable voice. The channel keeps this project apart from every other one on the \
 machine — but it must match what the other person is on, so look at collab_recent or \
 collab_changes and join a channel that already has traffic rather than inventing one. A \
-mismatched channel is not an error, it is silence."
+mismatched channel is not an error, it is silence.\n\nNOTHING HERE WILL NOTIFY YOU. These \
+are tools you call; no message can arrive on its own, because an MCP server cannot push into \
+a session. To know what the other person has said you must call collab_recent yourself — a \
+quiet channel and a channel you have simply not read look identical from in here. If your \
+harness can run a command in the background and show you its output (Claude Code's Monitor, \
+for instance), `collab watch` prints each message as it arrives and is the only way they \
+reach you unasked; ask the person you are working with to set it up if it matters."
                 }))
             }
             "tools/list" => Some(json!({"tools": tools()})),
@@ -364,7 +370,9 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                     *session_name = Some(chosen.clone());
                     config::save_session(&chosen, &ok);
                     text(format!(
-                        "you are \"{chosen}\" on {} for this chat (on {}). {}",
+                        "you are \"{chosen}\" on {} for this chat (on {}). {}\n\nNothing \
+will notify you of new messages — call collab_recent to see them. If your harness can stream a \
+background command to you, `collab watch` is what makes them arrive unasked.",
                         ok.iter().map(|c| format!("#{c}")).collect::<Vec<_>>().join(", "),
                         config::name(),
                         describe(&ok)

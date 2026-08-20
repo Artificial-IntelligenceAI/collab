@@ -21,10 +21,11 @@ rm -rf "$HOME/Applications/Collab.app"
 cp -R  dist.noindex/macos/Collab.app "$HOME/Applications/Collab.app"
 "$LSREG" -f "$HOME/Applications/Collab.app"
 
-# The server, and the app. The app matters as much: it is what raises the
-# popups, so a machine where only the server came back at login is a machine
-# that receives messages silently.
-for label in com.tankun.collab com.tankun.collab.app; do
+# Only the server starts at login. The app is opened by hand when you want to
+# look at it — but note what that means: the app is what raises the popups, so
+# while it is closed, messages still arrive and are still kept, they just do not
+# announce themselves.
+for label in com.tankun.collab; do
   # launchd does not expand variables in ProgramArguments, so the path is
   # substituted here rather than shipped pointing at one particular machine.
   sed "s|__HOME__|$HOME|g" "$label.plist" > "$HOME/Library/LaunchAgents/$label.plist"
@@ -35,7 +36,7 @@ done
 echo "installed:"
 echo "  $BIN/collab"
 echo "  $HOME/Applications/Collab.app"
-echo "  server and app both start at login (launchd)"
+echo "  server starts at login (launchd); open Collab.app yourself when you want it"
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo; echo "note: $BIN is not on your PATH — add it, or use the full path" ;;
