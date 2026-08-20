@@ -127,6 +127,14 @@ final class Core: ObservableObject {
     private var pending: [Msg] = []
     private var settleTimer: Timer?
 
+    /// Whether this machine is the one running the server. A channel only
+    /// exists as far as the server is concerned, so a channel made anywhere
+    /// else reaches nobody until the server holds its key too.
+    var isServer: Bool {
+        let host = serverAddr.split(separator: ":").first.map(String.init) ?? ""
+        return host.isEmpty || host == "localhost" || host == "127.0.0.1"
+    }
+
     /// Every channel worth offering: the ones this machine holds keys for, plus
     /// any seen in messages. A channel with nothing in it yet still exists.
     var channels: [String] {

@@ -73,7 +73,7 @@ struct ContentView: View {
             return true
         }
         .sheet(isPresented: $showChannels) {
-            ChannelsView(store: store) { core.restartWatcher() }
+            ChannelsView(store: store) { core.restartWatcher() }.environmentObject(core)
         }
     }
 

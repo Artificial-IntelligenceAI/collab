@@ -103,6 +103,7 @@ final class ChannelStore: ObservableObject {
 
 struct ChannelsView: View {
     @ObservedObject var store: ChannelStore
+    @EnvironmentObject private var core: Core
     var onChange: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -205,6 +206,22 @@ struct ChannelsView: View {
                 }
                 .padding(9)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Sol.bgAlt))
+            }
+
+            // The server opens every connection by trying its own keys, so a
+            // channel made anywhere else reaches nobody until the server has it.
+            // Made here, that is automatic; made elsewhere, it is a step people
+            // forget and then cannot see the consequence of.
+            Label {
+                Text(core.isServer
+                     ? "This machine runs the server, so a channel you make here works straight away. Send its key to anyone else who should join."
+                     : "This machine is not the server. A channel made here reaches nobody until the server machine has its key too — send it over, or ask for the channel to be made there instead.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(core.isServer ? Sol.fgDim : Sol.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: core.isServer ? "info.circle" : "exclamationmark.triangle")
+                    .foregroundStyle(core.isServer ? Sol.fgDim : Sol.orange)
             }
 
             HStack {
