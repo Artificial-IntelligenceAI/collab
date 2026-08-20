@@ -6,6 +6,7 @@
 //! privacy: this tool exists so neither AI has to guess what the other did, and
 //! an unauthenticated wire would let anything on the network forge a change
 //! record — a guess wearing a fact's clothes, arriving from outside.
+mod channels;
 mod client;
 mod config;
 mod crypto;
@@ -24,7 +25,8 @@ const USAGE: &str = "usage:
   collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\"
   collab log [-changes] [-all]          history
   collab who                            show the name, channel, server and key in use
-  collab key [-new]                     show or create the shared key
+  collab channels [-keys]               channels on this machine
+  collab channel add <name> <key>       join a channel someone sent you
   collab test-notify                    check that popup notifications work
   collab mcp                            run as an MCP server";
 
@@ -88,7 +90,23 @@ fn main() {
                 config::who()
             }
         }
-        "key" => client::key_cmd(take_switch(&mut args, "-new")),
+        "channels" => {
+            let json = take_switch(&mut args, "-json");
+            client::channels_cmd(take_switch(&mut args, "-keys"), json)
+        }
+        "channel" => match args.first().map(String::as_str) {
+            Some("create") => client::channel_create(args.get(1).map(String::as_str).unwrap_or("")),
+            Some("add") => client::channel_add(
+                args.get(1).map(String::as_str).unwrap_or(""),
+                args.get(2).map(String::as_str).unwrap_or(""),
+            ),
+            Some("forget") => client::channel_forget(args.get(1).map(String::as_str).unwrap_or("")),
+            _ => {
+                eprintln!("usage: collab channel add <name> <key>  |  collab channel forget <name>");
+                eprintln!("       (new channels are made in the collab app, by a person)");
+                std::process::exit(2);
+            }
+        },
         "test-notify" => notify::test_notify(),
         "mcp" => mcp::run(),
         _ => {

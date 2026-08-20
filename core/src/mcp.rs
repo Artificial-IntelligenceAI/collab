@@ -6,6 +6,7 @@
 //! notifications/resources/updated and notifications/message, and the client
 //! never subscribed and never reacted. Advertising a capability that does
 //! nothing would be a lie in the handshake, so we advertise tools and nothing else.
+use crate::channels;
 use crate::client;
 use crate::config;
 use crate::msg::{Msg, ACTIONS, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
@@ -76,25 +77,22 @@ Requires collab_set_name to have been called in this chat first; without it this
 /// machine's default channel — so every chat on it becomes one voice on one
 /// heap, which is the mess this exists to prevent.
 fn needs_join() -> String {
-    let mut seen: Vec<String> = Vec::new();
-    for m in client::fetch("", 0) {
-        if !m.channel.is_empty() && !seen.contains(&m.channel) {
-            seen.push(m.channel.clone());
-        }
-    }
-    let existing = if seen.is_empty() {
-        "none yet — this would be the first".to_string()
-    } else {
-        seen.join(", ")
-    };
     format!(
         "REFUSED: this chat has not joined a channel yet. Call collab_join with a name and a \
-channel, then send this again. Nothing was posted.\n\nChannels already in use: {existing}\nThis \
-machine's default: {}\n\nJoin an existing channel rather than inventing one — a channel only \
-works if it matches the other machine exactly, and a mismatch looks like silence rather than \
-an error.",
-        config::channel()
+channel, then send this again. Nothing was posted.\n\nChannels available here: {}\n\nThe \
+channel must be one of those. A channel only works if both machines hold its key, so one that \
+is not listed cannot be reached from here at all.",
+        channel_list()
     )
+}
+
+fn channel_list() -> String {
+    let names = channels::names();
+    if names.is_empty() {
+        "none yet — a person has to make one in the collab app".to_string()
+    } else {
+        names.join(", ")
+    }
 }
 
 fn text(s: String) -> Value {
@@ -188,6 +186,16 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                 .collect();
             if chosen.is_empty() || chan.is_empty() {
                 return text("a join needs both a name and a channel".into());
+            }
+            let chan = channels::tidy(&chan);
+            if channels::get(&chan).is_none() {
+                return text(format!(
+                    "no channel #{chan} on this machine, so there is no key for it and nothing \
+to join. Channels are made by a person, with the button in the collab app — an AI cannot make \
+one, because a key that has not been handed to the other machine is a room with nobody in \
+it.\n\nAvailable here: {}\n\nJoin one of those, or ask for the channel to be made.",
+                    channel_list()
+                ));
             }
             *session_name = Some(chosen.clone());
             // Written down so this chat's own watcher follows the channel it

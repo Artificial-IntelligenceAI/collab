@@ -1,7 +1,7 @@
 //! watch, post, change, log — and the rule that a dropped message must never
 //! look like silence.
+use crate::channels;
 use crate::config;
-use crate::crypto;
 use crate::history;
 use crate::msg::{Msg, ACTIONS, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
 use crate::notify::Notifier;
@@ -31,66 +31,77 @@ pub fn save_seen(n: i64, warned: &mut bool) {
     }
 }
 
-fn dial() -> std::io::Result<Conn> {
+fn dial(channel: &str) -> std::io::Result<Conn> {
     let stream = TcpStream::connect(config::addr())?;
     let _ = stream.set_nodelay(true);
-    Conn::connect(stream)
+    Conn::connect(stream, channel)
 }
 
-/// Dials, delivers, and on failure reconnects — announcing both, because
-/// silence must always mean "nobody is talking" and never "the wire died".
-pub fn stream<F, S>(channel: &str, since: impl Fn() -> i64, mut on_msg: F, mut on_status: S) -> !
-where
+/// Dials one channel, delivers, and on failure reconnects — announcing both,
+/// because silence must always mean "nobody is talking" and never "the wire
+/// died". Returns when `want` names a different channel from the one it is on:
+/// a chat can join a channel after its watcher has already started, and staying
+/// on the old one would be that same silence by another route.
+fn stream_channel<F, S>(
+    channel: &str,
+    since: &std::sync::atomic::AtomicI64,
+    want: &dyn Fn() -> String,
+    on_msg: &mut F,
+    on_status: &mut S,
+) where
     F: FnMut(&Msg),
     S: FnMut(bool, i64, Option<String>),
 {
+    use std::sync::atomic::Ordering::SeqCst;
     let mut announced = false;
     loop {
-        match dial() {
+        if want() != channel {
+            return;
+        }
+        match dial(channel) {
             Err(e) => {
                 if !announced {
-                    on_status(false, since(), Some(e.to_string()));
+                    on_status(false, since.load(SeqCst), Some(e.to_string()));
                     announced = true;
                 }
                 std::thread::sleep(Duration::from_secs(2));
-                continue;
             }
             Ok(mut conn) => {
                 announced = false;
-                on_status(true, since(), None);
+                on_status(true, since.load(SeqCst), None);
                 let hello = Hello {
                     name: config::name(),
                     host: config::name(),
                     channel: channel.to_string(),
-                    since: since(),
+                    since: since.load(SeqCst),
                     mode: "watch".into(),
                 };
-                if let Err(e) = conn
-                    .send(&hello)
-                    .and_then(|_| conn.expect_welcome().map(|_| ()))
-                {
-                    on_status(false, since(), Some(e.to_string()));
-                    announced = true;
+                if let Err(e) = conn.send(&hello).and_then(|_| conn.expect_welcome().map(|_| ())) {
+                    on_status(false, since.load(SeqCst), Some(e.to_string()));
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
                 }
-                {
-                    loop {
-                        match conn.recv::<Msg>() {
-                            Ok(Some(m)) => on_msg(&m),
-                            Ok(None) => break,
-                            Err(e) => {
-                                // A frame that will not open is not a dropped
-                                // connection — say which it was.
-                                on_status(false, since(), Some(e.to_string()));
-                                announced = true;
-                                break;
+                // A short read timeout is what lets a joined-channel change be
+                // noticed while the channel is quiet, without a poll loop.
+                conn.set_read_timeout(Some(Duration::from_secs(2)));
+                loop {
+                    match conn.recv::<Msg>() {
+                        Ok(Some(m)) => on_msg(&m),
+                        Ok(None) => break,
+                        Err(e) if is_timeout(&e) => {
+                            if want() != channel {
+                                return;
                             }
+                        }
+                        Err(e) => {
+                            on_status(false, since.load(SeqCst), Some(e.to_string()));
+                            announced = true;
+                            break;
                         }
                     }
                 }
                 if !announced {
-                    on_status(false, since(), None);
+                    on_status(false, since.load(SeqCst), None);
                     announced = true;
                 }
                 std::thread::sleep(Duration::from_secs(2));
@@ -99,101 +110,142 @@ where
     }
 }
 
-/// `since`: where to start, instead of ~/.collab-seen.
-/// `save`: whether to write our place back to ~/.collab-seen. The app passes
-/// false — two watchers sharing that one file would overwrite each other's
-/// place, and the Monitor's watcher is the one that owns it.
-/// `all`: every channel rather than only this one; the views do the filtering.
+fn is_timeout(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
+}
+
 pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: bool) -> ! {
+    if all {
+        // One connection per channel: a connection belongs to a channel now,
+        // because it is that channel's key that opens it. Each keeps its own
+        // place, since one seen-file cannot stand for several channels.
+        let mut handles = Vec::new();
+        for name in channels::names() {
+            let start = since.unwrap_or(0);
+            handles.push(std::thread::spawn(move || {
+                watch_one(&name, start, false, as_json, popups, &|| name.clone())
+            }));
+        }
+        if handles.is_empty() {
+            report_no_channels(as_json);
+        }
+        for h in handles {
+            let _ = h.join();
+        }
+        std::process::exit(0)
+    }
+
+    // A chat follows the channel it joined; anything else follows the config.
+    let want = || {
+        if config::session_id().is_empty() {
+            config::channel()
+        } else {
+            config::session_channel()
+        }
+    };
+    loop {
+        let here = want();
+        if channels::key_bytes(&here).is_none() {
+            report_unknown(&here, as_json);
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
+        watch_one(&here, since.unwrap_or_else(last_seen), save, as_json, popups, &want);
+    }
+}
+
+fn report_no_channels(as_json: bool) -> ! {
+    if as_json {
+        println!("{}", serde_json::json!({"type":"status","connected":false,
+            "error":"no channels on this machine yet","addr":config::addr(),"from":0}));
+    } else {
+        eprintln!("collab: no channels on this machine yet — make one in the collab app");
+    }
+    let _ = std::io::stdout().flush();
+    std::thread::sleep(Duration::from_secs(3600));
+    std::process::exit(0)
+}
+
+fn report_unknown(name: &str, as_json: bool) {
+    if as_json {
+        println!("{}", serde_json::json!({"type":"status","connected":false,
+            "error":format!("no key for #{name} on this machine"),
+            "addr":config::addr(),"from":0}));
+        let _ = std::io::stdout().flush();
+    }
+}
+
+fn watch_one(
+    channel: &str,
+    start: i64,
+    save: bool,
+    as_json: bool,
+    popups: bool,
+    want: &dyn Fn() -> String,
+) {
     let mut warned = false;
     let mut first = true;
-    let notifier = if popups {
-        Notifier::new(config::name())
-    } else {
-        None
-    };
-    // A chat that joined #roblox must not go on listening to #general. The
-    // channel it joined can change after this process started, so subscribe to
-    // everything and filter as messages arrive — no reconnect, no missed window.
-    let follows_session = !config::session_id().is_empty();
-    let channel = if all || follows_session {
-        String::new()
-    } else {
-        config::channel()
-    };
+    let notifier = if popups { Notifier::new(config::name()) } else { None };
     let addr = config::addr();
-
-    // Our place in the sequence, held here rather than re-read from the file,
-    // so a reconnect resumes from what we actually have and not from zero.
-    let cursor = std::sync::atomic::AtomicI64::new(since.unwrap_or_else(last_seen));
-    let read_cursor = || cursor.load(std::sync::atomic::Ordering::SeqCst);
-
     let host = config::name();
+    let cursor = std::sync::atomic::AtomicI64::new(start);
 
-    stream(
-        &channel,
-        read_cursor,
-        |m| {
-            // A chat does not need its own words read back to it. Only this
-            // chat's own are dropped — a sibling chat on the same machine is
-            // someone else, and worth hearing. The place in the sequence still
-            // advances, so a resume after this is still exact.
-            // Not this chat's channel, so not this chat's business. `-all`
-            // means the caller wants everything (that is the app), and no
-            // session means a plain terminal, which keeps its own channel.
-            let wrong_channel =
-                follows_session && !all && m.channel != config::session_channel();
-            let mine = m.via == crate::msg::ACTOR_AI
-                && m.host == host
-                && config::session_name().is_some_and(|n| n == m.from);
-            if wrong_channel || mine {
-                cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
-                if save {
-                    save_seen(m.seq, &mut warned);
-                }
-                return;
+    let mut on_msg = |m: &Msg| {
+        use std::sync::atomic::Ordering::SeqCst;
+        // A chat does not need its own words read back to it. Only this chat's
+        // own are dropped — a sibling chat on the same machine is someone else,
+        // and worth hearing. The place in the sequence still advances, so a
+        // resume after this is still exact.
+        let mine = m.via == crate::msg::ACTOR_AI
+            && m.host == host
+            && config::session_name().is_some_and(|n| n == m.from);
+        cursor.store(m.seq, SeqCst);
+        if save {
+            save_seen(m.seq, &mut warned);
+        }
+        if mine {
+            return;
+        }
+        if as_json {
+            if let Ok(s) = serde_json::to_string(&serde_json::json!({"type":"msg","msg":m})) {
+                println!("{s}");
             }
-            if as_json {
-                if let Ok(s) = serde_json::to_string(&serde_json::json!({"type":"msg","msg":m})) {
-                    println!("{s}");
-                }
-            } else {
-                println!("[{}] {}: {}", m.channel, m.label(), m.line());
-            }
+        } else {
+            println!("[{}] {}: {}", m.channel, m.label(), m.line());
+        }
+        let _ = std::io::stdout().flush();
+        if let Some(n) = &notifier {
+            n.send(m);
+        }
+    };
+
+    let mut on_status = |up: bool, from: i64, err: Option<String>| {
+        if as_json {
+            println!("{}", serde_json::json!({
+                "type":"status","connected":up,"from":from,"addr":addr,
+                "channel":channel,"error":err}));
             let _ = std::io::stdout().flush();
-            cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
-            if save {
-                save_seen(m.seq, &mut warned);
+            return;
+        }
+        if up {
+            if !first {
+                println!("* reconnected to {addr} #{channel}, resuming from #{from}");
             }
-            if let Some(n) = &notifier {
-                n.send(m);
+            first = false;
+        } else {
+            first = false;
+            match err {
+                Some(e) => println!("* DISCONNECTED from {addr} #{channel} — {e} — retrying"),
+                None => println!("* DISCONNECTED from {addr} #{channel} — retrying"),
             }
-        },
-        |up, from, err| {
-            if as_json {
-                let ev = serde_json::json!({
-                    "type": "status", "connected": up, "from": from,
-                    "addr": addr, "error": err,
-                });
-                println!("{ev}");
-                let _ = std::io::stdout().flush();
-                return;
-            }
-            if up {
-                if !first {
-                    println!("* reconnected to {addr}, resuming from #{from}");
-                }
-                first = false;
-            } else {
-                first = false;
-                match err {
-                    Some(e) => println!("* DISCONNECTED from {addr} — {e} — retrying"),
-                    None => println!("* DISCONNECTED from {addr} — retrying"),
-                }
-            }
-            let _ = std::io::stdout().flush();
-        },
-    )
+        }
+        let _ = std::io::stdout().flush();
+    };
+
+    stream_channel(channel, &cursor, want, &mut on_msg, &mut on_status);
 }
 
 /// Delivers one message on $COLLAB_CHANNEL, under this machine's own name.
@@ -212,7 +264,7 @@ pub fn send_full(channel: &str, display: Option<&str>, m: Msg) -> std::io::Resul
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| host.clone());
-    let mut conn = dial()?;
+    let mut conn = dial(channel)?;
     conn.send(&Hello {
         name,
         host,
@@ -292,8 +344,19 @@ pub fn change(action: &str, target: &str, summary: &str, via_ai: bool) {
 /// The server owns the only complete history, so ask over the wire; fall back
 /// to whatever is local rather than claiming the channel is empty.
 pub fn fetch(channel: &str, since: i64) -> Vec<Msg> {
+    // No channel named means every channel this machine holds a key for —
+    // which is now several connections, because a connection is a channel.
+    if channel.is_empty() {
+        let mut all: Vec<Msg> = channels::names()
+            .iter()
+            .flat_map(|c| fetch(c, since))
+            .collect();
+        all.sort_by_key(|m| m.seq);
+        all.dedup_by_key(|m| m.seq);
+        return all;
+    }
     let local = || history::filter(history::read(), channel, since);
-    let Ok(mut conn) = dial() else { return local() };
+    let Ok(mut conn) = dial(channel) else { return local() };
     let hello = Hello {
         name: config::name(),
         host: config::name(),
@@ -333,33 +396,70 @@ pub fn show_log(only_changes: bool, all_channels: bool) {
     }
 }
 
-pub fn key_cmd(make_new: bool) {
-    if make_new {
-        let k = crypto::new_key();
-        if let Err(e) = config::save_key(&k) {
-            eprintln!(
-                "collab: cannot write {} — {e}",
-                config::config_path().display()
-            );
-            std::process::exit(1);
-        }
-        println!("a new shared key is set on this machine:\n");
-        println!("    key = {k}\n");
-        println!("copy that line into ~/.collab-config on the other machine.");
-        println!("until both sides match, they cannot talk to each other at all.");
-        println!("\nthe server must be restarted to pick it up.");
+/// Channels a person can see and join. Creating one is deliberately not here:
+/// it happens in the app, by a person, because a key made on a whim by
+/// something that cannot copy it to the other machine is a room with nobody
+/// in it.
+pub fn channels_cmd(show_keys: bool, as_json: bool) {
+    let reg = channels::load();
+    if as_json {
+        let list: Vec<_> = reg
+            .iter()
+            .map(|(name, ch)| {
+                serde_json::json!({"name": name, "key": ch.key, "mine": ch.mine, "created": ch.created})
+            })
+            .collect();
+        println!("{}", serde_json::json!(list));
         return;
     }
-    match config::key() {
-        Some(k) => {
-            println!("key = {k}");
-            println!(
-                "\n(this is the line the other machine needs. `collab key -new` replaces it.)"
-            );
+    if reg.is_empty() {
+        println!("no channels on this machine yet — make one in the collab app");
+        return;
+    }
+    for (name, ch) in reg {
+        let origin = if ch.mine { "made here" } else { "joined" };
+        if show_keys {
+            println!("#{name}  ({origin})\n    key = {}", ch.key);
+        } else {
+            println!("#{name}  ({origin})");
         }
-        None => {
-            eprintln!("collab: no shared key set — run `collab key -new`");
-            std::process::exit(1);
+    }
+    if !show_keys {
+        println!("\n(collab channels -keys shows the keys, to copy to the other machine)");
+    }
+}
+
+/// What the app's button calls. There is deliberately no MCP tool for this:
+/// the CLI is a person's surface, the same as the button is.
+pub fn channel_create(name: &str) {
+    match channels::create(name) {
+        Ok((n, key)) => {
+            println!("#{n}");
+            println!("{key}");
+        }
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+pub fn channel_add(name: &str, key: &str) {
+    match channels::add(name, key) {
+        Ok(n) => println!("joined #{n} — it will work once the other machine is reachable"),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+pub fn channel_forget(name: &str) {
+    match channels::forget(name) {
+        Ok(()) => println!("forgot #{}", channels::tidy(name)),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
         }
     }
 }

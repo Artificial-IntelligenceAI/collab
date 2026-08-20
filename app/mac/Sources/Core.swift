@@ -80,7 +80,7 @@ private struct Settings: Decodable {
     var name: String
     var channel: String
     var addr: String
-    var hasKey: Bool
+    var channels: [String]
     var notifier: String?
 }
 
@@ -93,7 +93,7 @@ final class Core: ObservableObject {
     @Published private(set) var me = ""
     @Published private(set) var homeChannel = "general"
     @Published private(set) var serverAddr = ""
-    @Published private(set) var hasKey = true
+    @Published private(set) var knownChannels: [String] = []
     @Published private(set) var fatal: String?
 
     /// True until the backlog has finished arriving. Everything the server
@@ -171,10 +171,10 @@ final class Core: ObservableObject {
         me = s.name
         homeChannel = s.channel
         serverAddr = s.addr
-        hasKey = s.hasKey
-        if !s.hasKey {
-            fatal = "No shared key is set. Run `collab key -new` in a terminal, then copy the line it prints to the other machine."
-        }
+        knownChannels = s.channels
+        fatal = s.channels.isEmpty
+            ? "No channels yet. Make one with the # button above, then send its key to the other person."
+            : nil
     }
 
     private func startWatching() {
@@ -209,6 +209,18 @@ final class Core: ObservableObject {
     func stop() {
         watcher?.terminate()
         watcher = nil
+    }
+
+    /// A watcher holds one connection per channel, opened when it started, so a
+    /// channel made after that is invisible to it until it is started again.
+    func restartWatcher() {
+        stop()
+        seen.removeAll()
+        messages.removeAll()
+        buffer.removeAll()
+        priming = true
+        loadSettings()
+        startWatching()
     }
 
     // MARK: the stream

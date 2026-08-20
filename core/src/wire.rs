@@ -1,5 +1,12 @@
 //! The connection: a challenge in the clear, then nothing else in the clear.
-use crate::config;
+//!
+//! A connection belongs to exactly one channel. The client seals its Hello with
+//! that channel's key; the server works out which channel by trying the keys it
+//! holds until one opens the frame. That is cheap now that a key is 32 random
+//! bytes rather than something stretched from words — and it means the channel
+//! name never travels in the clear, so the wire does not even reveal what the
+//! two of you are working on.
+use crate::channels;
 use crate::crypto::{random, Sealer, CHALLENGE_LEN};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
@@ -7,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Hello {
@@ -28,8 +35,8 @@ pub struct Hello {
 
 /// Sent back, sealed, once a Hello has actually opened. Its whole job is to
 /// prove the far side holds the same key: without it a client seals a message
-/// with the wrong word, writes it into the socket, and the write succeeds —
-/// so a message nobody could read would look exactly like one delivered.
+/// with the wrong one, writes it into the socket, and the write succeeds — so a
+/// message nobody could read would look exactly like one delivered.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Welcome {
     #[serde(default)]
@@ -44,24 +51,23 @@ struct Greeting {
     challenge: String,
 }
 
-/// A sealed connection. Every read and write past the greeting is encrypted.
 pub struct Conn {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
     sealer: Sealer,
 }
 
-fn need_key() -> io::Error {
-    io::Error::other(
-        "no shared key set — run `collab key -new` here, then copy the line it prints \
-         into ~/.collab-config on the other machine",
-    )
+fn no_channel(name: &str) -> io::Error {
+    io::Error::other(format!(
+        "no key for #{name} on this machine — channels are made in the collab app, \
+         and the key has to be copied to every machine that uses them"
+    ))
 }
 
 impl Conn {
-    /// Server side: state a challenge, then expect everything sealed against it.
-    pub fn accept(stream: TcpStream) -> io::Result<Conn> {
-        let word = config::key().ok_or_else(need_key)?;
+    /// Server side: state a challenge, then find which channel's key opens what
+    /// comes back. A frame that opens with none of them is not a message.
+    pub fn accept(stream: TcpStream) -> io::Result<(Conn, String, Hello)> {
         let challenge = random(CHALLENGE_LEN);
         let mut writer = stream.try_clone()?;
         let greeting = serde_json::to_string(&Greeting {
@@ -70,16 +76,29 @@ impl Conn {
         })?;
         writeln!(writer, "{greeting}")?;
         writer.flush()?;
-        Ok(Conn {
-            reader: BufReader::new(stream),
-            writer,
-            sealer: Sealer::new(&word, &challenge),
-        })
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            return Err(io::Error::other("client hung up"));
+        }
+
+        for (name, ch) in channels::load() {
+            let Some(key) = B64.decode(ch.key.trim()).ok().filter(|k| k.len() == 32) else {
+                continue;
+            };
+            let Some(sealer) = Sealer::new(&key, &challenge) else { continue };
+            let Ok(plain) = sealer.open(&line) else { continue };
+            let Ok(hello) = serde_json::from_slice::<Hello>(&plain) else { continue };
+            return Ok((Conn { reader, writer, sealer }, name, hello));
+        }
+        Err(io::Error::other("no channel key opened that"))
     }
 
-    /// Client side: take the challenge, then seal everything against it.
-    pub fn connect(stream: TcpStream) -> io::Result<Conn> {
-        let word = config::key().ok_or_else(need_key)?;
+    /// Client side: take the challenge, then seal everything with the key for
+    /// the channel being joined.
+    pub fn connect(stream: TcpStream, channel: &str) -> io::Result<Conn> {
+        let key = channels::key_bytes(channel).ok_or_else(|| no_channel(channel))?;
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -97,11 +116,9 @@ impl Conn {
         let challenge = B64
             .decode(&greeting.challenge)
             .map_err(|_| io::Error::other("bad challenge"))?;
-        Ok(Conn {
-            reader,
-            writer: stream,
-            sealer: Sealer::new(&word, &challenge),
-        })
+        let sealer = Sealer::new(&key, &challenge)
+            .ok_or_else(|| io::Error::other("that channel's key is the wrong length"))?;
+        Ok(Conn { reader, writer: stream, sealer })
     }
 
     /// Waits for the far side to prove it holds the same key.
@@ -109,11 +126,17 @@ impl Conn {
         match self.recv::<Welcome>() {
             Ok(Some(w)) if w.ok => Ok(w),
             Ok(_) => Err(io::Error::other(
-                "the other machine hung up without answering — its `key` in ~/.collab-config \
-                 does not match this one",
+                "the other machine hung up without answering — it does not have this \
+                 channel's key, or does not know the channel at all",
             )),
             Err(e) => Err(e),
         }
+    }
+
+    /// A short read timeout is how a watcher notices that its chat has joined a
+    /// different channel while this one is quiet, without polling anything.
+    pub fn set_read_timeout(&mut self, d: Option<std::time::Duration>) {
+        let _ = self.reader.get_ref().set_read_timeout(d);
     }
 
     pub fn send<T: Serialize>(&mut self, value: &T) -> io::Result<()> {

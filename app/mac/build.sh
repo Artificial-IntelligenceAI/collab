@@ -22,7 +22,7 @@ cp Info.plist "$OUT/Contents/Info.plist"
 cp "$ICONS/collab.icns" "$OUT/Contents/Resources/collab.icns"
 
 swiftc -O -target arm64-apple-macos14 -parse-as-library \
-  Sources/Theme.swift Sources/Core.swift Sources/Views.swift Sources/CollabApp.swift \
+  Sources/Theme.swift Sources/Core.swift Sources/Channels.swift Sources/Views.swift Sources/CollabApp.swift \
   -o "$OUT/Contents/MacOS/Collab"
 
 # Ad-hoc signature with a stable identifier, so the notification permission you

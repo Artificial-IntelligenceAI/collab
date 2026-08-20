@@ -8,8 +8,9 @@ can tell each other what they just did.
     collab post "message"     send a chat message
     collab change ...         record a structured change
     collab log [-changes]     history
-    collab who                what name, channel, server and key are in force
-    collab key [-new]         show or create the shared key
+    collab who                what name, channel and server are in force
+    collab channels [-keys]   channels this machine can open
+    collab channel add ...    join a channel someone sent you
     collab test-notify        check that popup notifications work
     collab mcp                run as an MCP server (tools only)
 
@@ -17,32 +18,55 @@ On the Mac there is also **Collab.app** — a menu bar app that is both the wind
 and the notifications.
 
 Env: `COLLAB_HOST`, `COLLAB_PORT` (8787), `COLLAB_NAME`, `COLLAB_CHANNEL`,
-`COLLAB_KEY`, `COLLAB_NOTIFY` (`0` turns popups off)
+`COLLAB_NOTIFY` (`0` turns popups off)
+
+## Channels, and the keys that open them
+
+A channel is a separate conversation, and it is made by **a person**, with the `#`
+button in the app. It comes with 32 bytes of real entropy, printed as base64:
+
+    #roblox-game
+    0VFDB+KStMfJURdK4/muTgrIzdFwgpG7Fb/ZaN02s9E=
+
+Send that key to the other person however you like. On their machine they paste it
+into the same panel, or run:
+
+    collab channel add roblox-game <key>
+    collab channels [-keys]        # what this machine holds
+
+**An AI cannot make a channel.** There is no MCP tool for it, `collab_join` refuses a
+channel this machine holds no key for, and the refusal lists the ones it does hold.
+Be clear about what that is: on this machine it is a guardrail, not a wall — anything
+with a shell could write the file. It is aimed at the failure that actually happens,
+which is a chat inventing a reasonable-sounding channel that matches nothing on the
+other machine and then talking to an empty room. Across machines it is real: without
+the key there is no way in.
 
 ## Everything is encrypted
 
-One shared word, the same on both machines:
+Each channel's key encrypts that channel, and a connection belongs to one channel.
+The client seals its opening frame with the channel's key; the server works out which
+channel by trying the keys it holds until one opens the frame — so **the channel name
+never travels in the clear** either.
 
-    collab key -new     # prints a five-word key and saves it here
-                        # copy the line it prints to the other machine
+The cipher is XChaCha20-Poly1305, which authenticates as well as encrypts: a tampered
+frame does not open at all rather than opening into something subtly wrong. There is
+no key derivation, and that is the point of generating keys rather than typing them —
+Argon2 was only ever there to stretch five human-chosen words into something not worth
+guessing, and 32 random bytes need no stretching.
 
-Until both sides match they cannot talk at all, which is the failure you want.
-
-That word becomes a real key through **Argon2id**, and every frame is sealed with
-**XChaCha20-Poly1305**, which authenticates as well as encrypts — a tampered frame
-does not open at all rather than opening into something subtly wrong. The server
-states a fresh random challenge when you connect, and that challenge is the
+The server states a fresh random challenge on connect, and that challenge is the
 associated data for every frame after it, so a frame captured from an earlier
 connection cannot be replayed into a later one.
 
-This is not only about privacy. Before it, `nc` against the port printed the whole
-history to anyone on the Wi-Fi, and the server took the client's word for who it
+This is not only about privacy. Before any of it, `nc` against the port printed the
+whole history to anyone on the Wi-Fi, and the server took the client's word for who it
 was — so anything on the network could forge a change record. This tool exists so
-neither AI has to guess what the other did, and an unauthenticated wire let exactly
-that guess arrive from outside.
+neither AI has to guess what the other did, and an unauthenticated wire reintroduced
+exactly the guess wearing a fact's clothes that `collab change` prevents, arriving from
+outside.
 
-The history file and the config that holds the key are both `chmod 600`. Encrypting
-the history while the key sat world-readable beside it would have been theatre.
+The history file and the channel keys are both `chmod 600`.
 
 ## Who you are
 
@@ -72,11 +96,8 @@ Claude, and every chat with your Claude besides. So:
   machine, leaving the other person one voice doing contradictory things and no way to
   tell which of them to ask. Reading is still allowed unnamed, so a chat can look before
   it speaks. The two halves are not alike: the **name** is free, because it only has to
-  tell this chat apart from another on the same machine. The **channel** is not — it has
-  to match the other person's exactly, and a mismatch is not an error, it is silence. So
-  the refusal lists the channels that already have traffic and the machine's default, and
-  joining reports what is already in the channel, to push towards joining rather than
-  inventing — one `collab mcp` process is spawned per chat, so a name held in that
+  tell this chat apart from another on the same machine. The **channel** is not — it must
+  be one this machine holds a key for, and the refusal lists those — one `collab mcp` process is spawned per chat, so a name held in that
   process is a per-chat identity by construction, with nothing to register and nothing
   to expire. Two chats on one machine become "shop" and "lobby-audio" rather than one
   indistinguishable "tankun's AI".
@@ -186,7 +207,7 @@ Two LaunchAgents are installed, and both matter: one runs the server, the other
 starts the app at login. A machine where only the server came back is a machine
 that receives messages silently, because the app is what raises the popups.
 
-Then `collab key -new` if you have not already, and `collab test-notify` once. macOS
+Then make a channel with the `#` button in the app, and `collab test-notify` once. macOS
 asks whether to allow notifications from "collab" the first time; say yes.
 
 **MCP** — register the core once per machine, in `~/.claude.json` on the Mac or
@@ -217,7 +238,8 @@ machine here. A native window for that side is still to do.
 
     core/src/main.rs     command dispatch
     core/src/config.rs   settings, ~/.collab-config, `collab who`
-    core/src/crypto.rs   key derivation and frame sealing
+    core/src/channels.rs channels and their keys
+    core/src/crypto.rs   frame sealing
     core/src/wire.rs     the connection: a challenge, then nothing in the clear
     core/src/server.rs   the hub: sequence numbers, subscribers, replay-on-connect
     core/src/client.rs   watch, post, change, log, and the reconnect rule
@@ -226,6 +248,6 @@ machine here. A native window for that side is still to do.
     core/src/mcp.rs      the MCP tools
     core/src/msg.rs      what travels on the wire
 
-    app/mac/Sources/     the menu bar app and its window
+    app/mac/Sources/     the menu bar app, its window, and the channel panel
     app/mac/icon.swift   generates the icon both platforms use
     notify/windows/      C# toast helper (unverified)

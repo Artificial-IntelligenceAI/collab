@@ -4,6 +4,8 @@ enum Pane: String, CaseIterable { case chat = "Chat", changes = "Changes" }
 
 struct ContentView: View {
     @ObservedObject var core: Core
+    @StateObject private var store = ChannelStore()
+    @State private var showChannels = false
     @State private var pane: Pane = .chat
     @State private var query = ""
     @State private var channel: String?
@@ -51,6 +53,9 @@ struct ContentView: View {
         }
         .background(Sol.bg)
         .onAppear { if channel == nil { channel = core.homeChannel } }
+        .sheet(isPresented: $showChannels) {
+            ChannelsView(store: store) { core.restartWatcher() }
+        }
     }
 
     private var header: some View {
@@ -72,6 +77,16 @@ struct ContentView: View {
             TextField("Search…", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+
+            // Making a channel is a person's job, so it lives behind a button
+            // and not behind a tool.
+            Button {
+                store.reload()
+                showChannels = true
+            } label: {
+                Image(systemName: "number.square")
+            }
+            .help("Channels — make one, or join one someone sent you")
 
             HStack(spacing: 6) {
                 Circle()

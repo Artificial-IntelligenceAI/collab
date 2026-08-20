@@ -2,7 +2,7 @@
 use crate::config;
 use crate::history;
 use crate::msg::{self, Msg, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
-use crate::wire::{Conn, Hello, Welcome};
+use crate::wire::{Conn, Welcome};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -66,14 +66,6 @@ pub fn serve() -> ! {
     let resume = history::read().iter().map(|m| m.seq).max().unwrap_or(0);
     let hub = Hub::new(resume);
 
-    if config::key().is_none() {
-        eprintln!("collab: refusing to start without a shared key.");
-        eprintln!(
-            "        run `collab key -new`, then copy the line it prints to the other machine."
-        );
-        std::process::exit(1);
-    }
-
     let port = config::port();
     let listener = match TcpListener::bind(format!("0.0.0.0:{port}")) {
         Ok(l) => l,
@@ -104,13 +96,14 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
     let _ = stream.set_nodelay(true);
     // A frame that will not open is not a message. Someone on the network with
     // the wrong key, or no key, gets nothing and tells us nothing.
-    let mut conn = match Conn::accept(stream) {
-        Ok(c) => c,
+    // Which channel this is comes from which key opened the frame, not from
+    // anything the client claims — so a client cannot reach a channel it does
+    // not hold the key for by simply naming it.
+    let (mut conn, channel, mut hello) = match Conn::accept(stream) {
+        Ok(x) => x,
         Err(_) => return,
     };
-    let Ok(Some(hello)) = conn.recv::<Hello>() else {
-        return;
-    };
+    hello.channel = channel;
     // The Hello opened, so both sides hold the same key. Say so — otherwise a
     // client with the wrong word cannot tell refusal from delivery.
     if conn

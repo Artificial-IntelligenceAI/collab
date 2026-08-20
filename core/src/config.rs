@@ -102,42 +102,6 @@ pub fn notify_enabled() -> bool {
     env("COLLAB_NOTIFY", "1") != "0"
 }
 
-/// The shared word. Both machines need the same one; without it there is no
-/// conversation at all, which is the failure you want.
-pub fn key() -> Option<String> {
-    let k = env("COLLAB_KEY", "");
-    if k.is_empty() {
-        None
-    } else {
-        Some(k)
-    }
-}
-
-/// Writes `key = …` into the config, creating it, and locks the file down —
-/// it is the one file whose contents are worth stealing.
-pub fn save_key(k: &str) -> std::io::Result<()> {
-    let path = config_path();
-    let mut text = std::fs::read_to_string(&path).unwrap_or_default();
-    if values().contains_key("key") {
-        text = text
-            .lines()
-            .filter(|l| {
-                !l.split_once('=')
-                    .map(|(a, _)| a.trim().eq_ignore_ascii_case("key"))
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text.push_str(&format!("key = {k}\n"));
-    std::fs::write(&path, text)?;
-    lock_down(&path);
-    Ok(())
-}
-
 /// chmod 600. Encrypting the history while the key sits in a world-readable
 /// file beside it would be theatre; keeping both to yourself is not.
 pub fn lock_down(path: &std::path::Path) {
@@ -156,7 +120,7 @@ pub fn who_json() {
         "name": name(),
         "channel": channel(),
         "addr": addr(),
-        "hasKey": key().is_some(),
+        "channels": crate::channels::names(),
         "notifier": crate::notify::find_notifier().map(|p| p.display().to_string()),
     });
     println!("{j}");
@@ -255,19 +219,13 @@ pub fn who() {
         source("COLLAB_CHANNEL")
     );
     let _ = writeln!(out, "server   {:<28} {}", addr(), source("COLLAB_HOST"));
-    match key() {
-        Some(_) => {
-            let _ = writeln!(
-                out,
-                "key      {:<28} {}",
-                "set (messages encrypted)",
-                source("COLLAB_KEY")
-            );
-        }
-        None => {
-            let _ = writeln!(out, "key      {:<28} run: collab key -new", "MISSING");
-        }
-    }
+    let chans = crate::channels::names();
+    let list = if chans.is_empty() {
+        "none — make one in the collab app".to_string()
+    } else {
+        chans.join(", ")
+    };
+    let _ = writeln!(out, "channels {list}");
     match crate::notify::find_notifier() {
         Some(h) => {
             let state = if notify_enabled() {

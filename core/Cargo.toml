@@ -8,7 +8,6 @@ rust-version = "1.80"
 serde                = { version = "1", features = ["derive"] }
 serde_json           = "1"
 chacha20poly1305     = "0.10"   # XChaCha20-Poly1305: 24-byte nonces, no AES-NI needed
-argon2               = "0.5"    # turns a short shared word into a real key
 rand                 = "0.8"
 base64               = "0.22"
 time                 = { version = "0.3", features = ["formatting", "parsing", "local-offset"] }
