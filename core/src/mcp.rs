@@ -15,17 +15,19 @@ use std::io::{BufRead, Write};
 fn tools() -> Value {
     json!([
       {
-        "name": "collab_set_name",
-        "description": "Choose the name you appear under on the shared channel, for this chat only. \
-Required before you can post anything at all — collab_post and collab_change refuse \
-until you have. Call it once, early. Pick something short that says which part of the \
-project you are working on — \"shop\", \"lobby-audio\" — so the other person can tell your messages \
-apart from a different chat running on the same machine. Without it you appear as \
-\"<machine>'s AI\", which every chat on this machine would share. The machine you are on is \
-recorded either way, so nobody has to guess whose Claude spoke.",
+        "name": "collab_join",
+        "description": "Join a channel under a name, for this chat only. Required before you can post \
+anything at all — collab_post and collab_change refuse until you have. Call it once, early. \
+The name is yours to pick: something short saying which part of the project this chat is working \
+on (\"shop\", \"lobby-audio\"), so the other person can tell your messages apart from another chat \
+on the same machine. The channel is NOT yours to pick — it has to be the one the other person is \
+already on, or you will both be talking into silence and neither of you will see anything wrong. \
+Call collab_recent or collab_changes first to see which channels have traffic, and join one of \
+those. Only invent a channel name if you have been told to.",
         "inputSchema": {"type":"object","properties":{
-            "name": {"type":"string","description":"Short name for this chat, e.g. \"shop\"."}},
-          "required":["name"]}
+            "name":    {"type":"string","description":"Short name for this chat, e.g. \"shop\"."},
+            "channel": {"type":"string","description":"The channel the project already uses. Must match the other machine exactly."}},
+          "required":["name","channel"]}
       },
       {
         "name": "collab_post",
@@ -70,9 +72,30 @@ Requires collab_set_name to have been called in this chat first; without it this
 /// Refusing is the point. An unnamed chat posts as the machine, and every other
 /// chat on that machine posts as the machine too — so the other person sees one
 /// voice doing contradictory things and cannot tell which of them to ask.
-const NEEDS_NAME: &str = "REFUSED: this chat has no name yet. \
-Call collab_set_name first — something short saying which part of the project you are \
-working on — then send this again. Nothing was posted.";
+/// Refusing is the point. An unjoined chat posts as the machine, onto the
+/// machine's default channel — so every chat on it becomes one voice on one
+/// heap, which is the mess this exists to prevent.
+fn needs_join() -> String {
+    let mut seen: Vec<String> = Vec::new();
+    for m in client::fetch("", 0) {
+        if !m.channel.is_empty() && !seen.contains(&m.channel) {
+            seen.push(m.channel.clone());
+        }
+    }
+    let existing = if seen.is_empty() {
+        "none yet — this would be the first".to_string()
+    } else {
+        seen.join(", ")
+    };
+    format!(
+        "REFUSED: this chat has not joined a channel yet. Call collab_join with a name and a \
+channel, then send this again. Nothing was posted.\n\nChannels already in use: {existing}\nThis \
+machine's default: {}\n\nJoin an existing channel rather than inventing one — a channel only \
+works if it matches the other machine exactly, and a mismatch looks like silence rather than \
+an error.",
+        config::channel()
+    )
+}
 
 fn text(s: String) -> Value {
     json!({"content":[{"type":"text","text": s}]})
@@ -102,11 +125,13 @@ pub fn run() {
                     // No resources, no subscriptions — they demonstrably do nothing.
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name":"collab","version":"3.0.0"},
-                    "instructions": "Call collab_set_name once, before posting anything. \
-Until you do, collab_post and collab_change will refuse: a name in collab belongs to a \
-machine, so without one every chat on this machine is the same indistinguishable voice, \
-and the other person cannot tell which of them changed what. Pick something short that \
-says which part of the project this chat is working on."
+                    "instructions": "Call collab_join once, before posting anything, with a name for this \
+chat and the channel the project uses. Until you do, collab_post and collab_change refuse. The \
+name keeps this chat apart from other chats on the same machine, which would otherwise all be \
+one indistinguishable voice. The channel keeps this project apart from every other one on the \
+machine — but it must match what the other person is on, so look at collab_recent or \
+collab_changes and join a channel that already has traffic rather than inventing one. A \
+mismatched channel is not an error, it is silence."
                 }))
             }
             "tools/list" => Some(json!({"tools": tools()})),
@@ -146,7 +171,7 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
         .unwrap_or(20) as usize;
 
     match name {
-        "collab_set_name" => {
+        "collab_join" => {
             let chosen: String = arg(req, "name")
                 .split_whitespace()
                 .collect::<Vec<_>>()
@@ -154,29 +179,46 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                 .chars()
                 .take(24)
                 .collect();
-            if chosen.is_empty() {
-                return text("a name cannot be empty".into());
+            let chan: String = arg(req, "channel")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join("-")
+                .chars()
+                .take(32)
+                .collect();
+            if chosen.is_empty() || chan.is_empty() {
+                return text("a join needs both a name and a channel".into());
             }
             *session_name = Some(chosen.clone());
-            // Written down so this chat's own watcher can recognise its own
-            // messages coming back and not read them out again.
-            config::save_session_name(&chosen);
+            // Written down so this chat's own watcher follows the channel it
+            // joined, and recognises its own messages coming back.
+            config::save_session(&chosen, &chan);
+
+            let here = client::fetch(&chan, 0);
+            let summary = match here.last() {
+                Some(last) => format!(
+                    "{} message{} already here, the last from {}",
+                    here.len(),
+                    if here.len() == 1 { "" } else { "s" },
+                    last.label()
+                ),
+                None => "nothing here yet — you are the first".to_string(),
+            };
             text(format!(
-                "you are \"{chosen}\" on #{} for this chat (on {})",
-                config::channel(),
+                "you are \"{chosen}\" on #{chan} for this chat (on {}). {summary}",
                 config::name()
             ))
         }
         "collab_post" => {
             let Some(_) = session_name.as_deref() else {
-                return text(NEEDS_NAME.into());
+                return text(needs_join());
             };
             let m = arg(req, "message").trim().replace('\n', " ");
             if m.is_empty() {
                 return text("nothing to send — message was empty".into());
             }
             match client::send_full(
-                &config::channel(),
+                &config::session_channel(),
                 session_name.as_deref(),
                 Msg { kind: KIND_CHAT.into(), via: ACTOR_AI.into(), text: m.clone(), ..Default::default() },
             ) {
@@ -188,7 +230,7 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
         }
         "collab_change" => {
             let Some(_) = session_name.as_deref() else {
-                return text(NEEDS_NAME.into());
+                return text(needs_join());
             };
             let action = arg(req, "action").trim().to_lowercase();
             let target = arg(req, "target").trim().to_string();
@@ -207,7 +249,7 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                 text: summary.clone(),
                 ..Default::default()
             };
-            match client::send_full(&config::channel(), session_name.as_deref(), m) {
+            match client::send_full(&config::session_channel(), session_name.as_deref(), m) {
                 Ok(()) => text(format!("recorded: {action} {target} — {summary}")),
                 Err(e) => text(format!(
                     "could not reach the collab server at {} ({e}) — the change was NOT recorded",
@@ -217,7 +259,7 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
         }
         "collab_recent" => {
             let kind = arg(req, "kind");
-            let mut h = client::fetch(&config::channel(), 0);
+            let mut h = client::fetch(&config::session_channel(), 0);
             if kind == "chat" || kind == "change" {
                 h.retain(|m| m.kind() == kind);
             }
@@ -235,7 +277,7 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
             )
         }
         "collab_changes" => {
-            let mut ch: Vec<Msg> = client::fetch(&config::channel(), 0)
+            let mut ch: Vec<Msg> = client::fetch(&config::session_channel(), 0)
                 .into_iter()
                 .filter(|m| m.is_change())
                 .collect();

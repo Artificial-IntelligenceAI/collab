@@ -66,18 +66,24 @@ Claude, and every chat with your Claude besides. So:
 - Every message records **whether a person or an AI** sent it. The window shows an
   `AI` or `Human` tag beside the name. The MCP tools are the AI; the window's text
   box is you; a command typed in a terminal is taken to be you.
-- **An AI must name itself, per chat.** `collab_set_name` sets the name for that chat and
-  nothing else, and `collab_post` and `collab_change` refuse until it has been called —
+- **An AI must join, per chat.** `collab_join` takes a name *and* a channel, and
+  `collab_post` and `collab_change` refuse until it has been called —
   an unnamed chat would post as the machine, and so would every other chat on that
   machine, leaving the other person one voice doing contradictory things and no way to
   tell which of them to ask. Reading is still allowed unnamed, so a chat can look before
-  it speaks — one `collab mcp` process is spawned per chat, so a name held in that
+  it speaks. The two halves are not alike: the **name** is free, because it only has to
+  tell this chat apart from another on the same machine. The **channel** is not — it has
+  to match the other person's exactly, and a mismatch is not an error, it is silence. So
+  the refusal lists the channels that already have traffic and the machine's default, and
+  joining reports what is already in the channel, to push towards joining rather than
+  inventing — one `collab mcp` process is spawned per chat, so a name held in that
   process is a per-chat identity by construction, with nothing to register and nothing
   to expire. Two chats on one machine become "shop" and "lobby-audio" rather than one
   indistinguishable "tankun's AI".
 - **A chat never hears its own messages back.** `collab_set_name` writes the name to
   `~/.collab-sessions/<session>`, and that chat's own `collab watch` reads it and drops
-  what it sent itself — while still advancing its place in the sequence, so a resume
+  what it sent itself — and follows the channel it joined, rather than the machine's
+  default, which would have left a chat on #roblox still listening to #general — while still advancing its place in the sequence, so a resume
   after it is still exact. Claude Code hands an MCP server and anything a Monitor runs
   the same `CLAUDE_CODE_SESSION_ID`, which is what makes "its own" mean *that chat* and
   not merely *that machine*: a sibling chat on the same machine is someone else, and

@@ -112,7 +112,15 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
     } else {
         None
     };
-    let channel = if all { String::new() } else { config::channel() };
+    // A chat that joined #roblox must not go on listening to #general. The
+    // channel it joined can change after this process started, so subscribe to
+    // everything and filter as messages arrive — no reconnect, no missed window.
+    let follows_session = !config::session_id().is_empty();
+    let channel = if all || follows_session {
+        String::new()
+    } else {
+        config::channel()
+    };
     let addr = config::addr();
 
     // Our place in the sequence, held here rather than re-read from the file,
@@ -130,10 +138,15 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
             // chat's own are dropped — a sibling chat on the same machine is
             // someone else, and worth hearing. The place in the sequence still
             // advances, so a resume after this is still exact.
+            // Not this chat's channel, so not this chat's business. `-all`
+            // means the caller wants everything (that is the app), and no
+            // session means a plain terminal, which keeps its own channel.
+            let wrong_channel =
+                follows_session && !all && m.channel != config::session_channel();
             let mine = m.via == crate::msg::ACTOR_AI
                 && m.host == host
                 && config::session_name().is_some_and(|n| n == m.from);
-            if mine {
+            if wrong_channel || mine {
                 cursor.store(m.seq, std::sync::atomic::Ordering::SeqCst);
                 if save {
                     save_seen(m.seq, &mut warned);

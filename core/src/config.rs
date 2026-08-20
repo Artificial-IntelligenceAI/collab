@@ -174,26 +174,58 @@ fn sessions_dir() -> PathBuf {
     home(".collab-sessions")
 }
 
-/// The name this chat is posting under, as recorded by collab_set_name.
-pub fn session_name() -> Option<String> {
+/// Who a chat is and where it is talking. Written by collab_join, read by that
+/// same chat's watcher — which is how it recognises its own messages, and how
+/// it knows to follow the channel the chat actually joined rather than the
+/// machine's default.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Session {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub channel: String,
+}
+
+pub fn session() -> Option<Session> {
     let id = session_id();
     if id.is_empty() {
         return None;
     }
-    std::fs::read_to_string(sessions_dir().join(id))
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    let raw = std::fs::read_to_string(sessions_dir().join(id)).ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    // Files written before channels were part of this hold a bare name.
+    Some(serde_json::from_str(raw).unwrap_or(Session {
+        name: raw.to_string(),
+        channel: String::new(),
+    }))
 }
 
-pub fn save_session_name(name: &str) {
+pub fn session_name() -> Option<String> {
+    session().map(|s| s.name).filter(|s| !s.is_empty())
+}
+
+/// The channel this chat joined, or the machine's default if it has not.
+pub fn session_channel() -> String {
+    session()
+        .map(|s| s.channel)
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(channel)
+}
+
+pub fn save_session(name: &str, chan: &str) {
     let id = session_id();
     if id.is_empty() {
         return;
     }
     let dir = sessions_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(dir.join(id), name);
+    let s = Session { name: name.into(), channel: chan.into() };
+    if let Ok(text) = serde_json::to_string(&s) {
+        let _ = std::fs::write(dir.join(id), text);
+    }
     prune_sessions(&dir);
 }
 
