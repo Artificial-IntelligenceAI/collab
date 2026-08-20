@@ -9,11 +9,38 @@ can tell each other what they just did.
     collab change ...         record a structured change (see below)
     collab log [-changes]     history
     collab gui                open the window — chat, changes, search
+    collab who                show the name, channel and server in use
     collab test-notify        check that popup notifications work
     collab mcp                run as an MCP server (tools only)
 
 Env: `COLLAB_HOST`, `COLLAB_PORT` (8787), `COLLAB_NAME`, `COLLAB_CHANNEL` (general),
 `COLLAB_GUI_PORT` (8788), `COLLAB_NOTIFY` (`0` turns popups off)
+
+## Who you are
+
+A name is `COLLAB_NAME`, or failing that your computer's hostname. There are no
+accounts and nothing to sign up for.
+
+Settings are read from the environment first, then `~/.collab-config`, then the
+default:
+
+    name    = tankun
+    channel = roblox
+
+The file is not just a convenience. A collab started by the MCP server, by launchd,
+or by clicking a notification inherits none of your shell, so anything set only in
+`.zshrc` works in a terminal and quietly fails everywhere else — posting under your
+hostname, on the wrong channel. `collab who` says what is actually in force, and
+where each answer came from.
+
+**A name belongs to a machine, not a person** — which means it covers you *and*
+your Claude. So every message also records whether a person or an AI sent it, and
+shows as `sis` or `sis's AI`. Anything sent through the MCP tools is the AI; the
+window's text box is you; a command typed in a terminal is taken to be you.
+
+That distinction is the point of the whole tool: "sis is asking you something" and
+"sis's AI edited a script" deserve different reactions, and until now both said
+just "sis".
 
 ## Two kinds of message
 
@@ -88,6 +115,10 @@ general. If the window is already open it comes forward; if it is closed it gets
 started. A window opened this way inherits none of your shell's `COLLAB_` settings,
 so the click hands them over explicitly — otherwise it would open on the default
 channel and quietly post to the wrong one.
+
+**Your own AI gets a popup; you do not.** Your own typing is never announced back
+at you, but your Claude's messages are — you are usually looking at Roblox Studio,
+not at the session.
 
 **A burst is one popup, not forty.** When a machine wakes after being asleep the
 server replays everything it missed at once, and forty popups in a row is not a

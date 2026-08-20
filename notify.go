@@ -122,8 +122,11 @@ func (n *notifier) run() {
 	for {
 		select {
 		case m := <-n.in:
-			if strings.EqualFold(strings.TrimSpace(m.From), strings.TrimSpace(n.me)) {
-				continue // your own words do not need announcing back to you
+			// Your own words do not need announcing back to you — but your own
+			// AI's do. A name belongs to a machine, so without the second test
+			// this would also silence the assistant sitting next to you.
+			if m.Via != ActorAI && strings.EqualFold(strings.TrimSpace(m.From), strings.TrimSpace(n.me)) {
+				continue
 			}
 			pending = append(pending, m)
 			if timer == nil {
@@ -153,10 +156,10 @@ func (n *notifier) flush(ms []Msg) {
 	case 1:
 		m := ms[0]
 		if m.kind() == KindChange {
-			raise(n.helper, m.From, fmt.Sprintf("%s · %s", m.Action, m.Target), ellipsis(m.Text, 180), m.Channel)
+			raise(n.helper, m.who(), fmt.Sprintf("%s · %s", m.Action, m.Target), ellipsis(m.Text, 180), m.Channel)
 			return
 		}
-		raise(n.helper, m.From, "#"+m.Channel, ellipsis(m.Text, 180), m.Channel)
+		raise(n.helper, m.who(), "#"+m.Channel, ellipsis(m.Text, 180), m.Channel)
 		return
 	}
 
@@ -164,9 +167,9 @@ func (n *notifier) flush(ms []Msg) {
 	seen := map[string]bool{}
 	changes := 0
 	for _, m := range ms {
-		if !seen[m.From] {
-			seen[m.From] = true
-			senders = append(senders, m.From)
+		if !seen[m.who()] {
+			seen[m.who()] = true
+			senders = append(senders, m.who())
 		}
 		if m.kind() == KindChange {
 			changes++
@@ -182,7 +185,7 @@ func (n *notifier) flush(ms []Msg) {
 		sub = fmt.Sprintf("%d new on #%s · %d change%s", len(ms), ms[len(ms)-1].Channel, changes, plural(changes))
 	}
 	last := ms[len(ms)-1]
-	raise(n.helper, title, sub, ellipsis(last.From+": "+last.line(), 180), last.Channel)
+	raise(n.helper, title, sub, ellipsis(last.who()+": "+last.line(), 180), last.Channel)
 }
 
 func plural(n int) string {

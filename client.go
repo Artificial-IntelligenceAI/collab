@@ -76,7 +76,7 @@ func watch() {
 	popup := newNotifier(name()) // nil when this machine has no notifier
 	stream(channel(), lastSeen,
 		func(m Msg) {
-			fmt.Printf("[%s] %s: %s\n", m.Channel, m.From, m.line())
+			fmt.Printf("[%s] %s: %s\n", m.Channel, m.who(), m.line())
 			saveSeen(m.Seq)
 			popup.send(m)
 		},
@@ -188,6 +188,28 @@ func fetch(ch string, since int64) []Msg {
 	return out
 }
 
+// who answers "who am I, and where am I talking?" — the questions behind almost
+// every confusing moment with this thing.
+func who() {
+	src := func(k string) string {
+		if os.Getenv(k) != "" {
+			return "from $" + k
+		}
+		if config()[strings.ToLower(strings.TrimPrefix(k, "COLLAB_"))] != "" {
+			return "from " + home(".collab-config")
+		}
+		return "default"
+	}
+	fmt.Printf("name     %-28s %s\n", name(), src("COLLAB_NAME"))
+	fmt.Printf("channel  %-28s %s\n", channel(), src("COLLAB_CHANNEL"))
+	fmt.Printf("server   %-28s %s\n", addr(), src("COLLAB_HOST"))
+	if h := findNotifier(); h != "" {
+		fmt.Printf("popups   %-28s %s\n", map[bool]string{true: "on", false: "off (COLLAB_NOTIFY=0)"}[notifyEnabled()], h)
+	} else {
+		fmt.Printf("popups   %-28s %s\n", "unavailable", "no notifier installed")
+	}
+}
+
 func showLog(args []string) {
 	fs := flag.NewFlagSet("log", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -208,6 +230,6 @@ func showLog(args []string) {
 		if len(at) >= 16 {
 			at = at[11:16]
 		}
-		fmt.Printf("#%-4d [%s] %s: %s\n", m.Seq, at, m.From, m.line())
+		fmt.Printf("#%-4d [%s] %s: %s\n", m.Seq, at, m.who(), m.line())
 	}
 }

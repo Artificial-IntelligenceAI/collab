@@ -43,7 +43,7 @@ func (h *hub) publish(m Msg) {
 		default: // a stalled reader must not block everyone else
 		}
 	}
-	fmt.Printf("[%s] #%d %s: %s\n", m.Channel, m.Seq, m.From, m.line())
+	fmt.Printf("[%s] #%d %s: %s\n", m.Channel, m.Seq, m.who(), m.line())
 }
 
 func serve() {
@@ -150,6 +150,9 @@ func handle(h *hub, c net.Conn) {
 		if m.Kind != KindChange {
 			m.Kind = KindChat
 			m.Action, m.Target = "", ""
+		}
+		if m.Via != ActorAI {
+			m.Via = "" // a person, or something that did not say
 		}
 		h.publish(m)
 	}

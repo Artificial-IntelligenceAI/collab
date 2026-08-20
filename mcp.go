@@ -145,7 +145,7 @@ func runMCP() {
 					reply(m.ID, text("nothing to send — message was empty"))
 					break
 				}
-				if err := send(Msg{Kind: KindChat, Text: msg}); err != nil {
+				if err := send(Msg{Kind: KindChat, Via: ActorAI, Text: msg}); err != nil {
 					reply(m.ID, text(fmt.Sprintf("could not reach the collab server at %s (%v) — the other session did NOT get this", addr(), err)))
 					break
 				}
@@ -163,7 +163,7 @@ func runMCP() {
 					reply(m.ID, text("a change needs both a target and a one-line summary"))
 					break
 				}
-				if err := send(Msg{Kind: KindChange, Action: action, Target: target, Text: summary}); err != nil {
+				if err := send(Msg{Kind: KindChange, Via: ActorAI, Action: action, Target: target, Text: summary}); err != nil {
 					reply(m.ID, text(fmt.Sprintf("could not reach the collab server at %s (%v) — the change was NOT recorded", addr(), err)))
 					break
 				}
@@ -189,7 +189,7 @@ func runMCP() {
 				}
 				var b strings.Builder
 				for _, msg := range h {
-					fmt.Fprintf(&b, "#%d %s: %s\n", msg.Seq, msg.From, msg.line())
+					fmt.Fprintf(&b, "#%d %s: %s\n", msg.Seq, msg.who(), msg.line())
 				}
 				if b.Len() == 0 {
 					b.WriteString("(nothing on this channel yet)")
@@ -214,8 +214,8 @@ func runMCP() {
 				var b strings.Builder
 				var who string
 				for _, msg := range ch {
-					if msg.From != who {
-						who = msg.From
+					if msg.who() != who {
+						who = msg.who()
 						at := msg.At
 						if len(at) >= 16 {
 							at = strings.Replace(at[:16], "T", " ", 1)

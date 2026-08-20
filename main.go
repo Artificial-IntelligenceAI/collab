@@ -39,12 +39,20 @@ const (
 // What a change did. Anything else is rejected at the door.
 var actions = []string{"added", "edited", "removed", "renamed"}
 
+// Who actually spoke. A name in collab belongs to a machine, not a person, so
+// without this "sis" means both the other person and her Claude — and "sis is asking
+// you something" deserves a different reaction from "sis's AI edited a script".
+// MCP calls are always the AI; the window's text box is always a person; a
+// command typed in a terminal is taken to be a person too.
+const ActorAI = "ai"
+
 type Msg struct {
 	Seq     int64  `json:"seq"`
 	Channel string `json:"channel"`
 	From    string `json:"from"`
 	At      string `json:"at"`
 	Kind    string `json:"kind,omitempty"` // "" (old records) means chat
+	Via     string `json:"via,omitempty"`  // "ai", or "" for a person
 	Text    string `json:"text"`           // chat body, or the change's one-line summary
 
 	// change only
@@ -70,6 +78,14 @@ func (m Msg) line() string {
 	return m.Text
 }
 
+// who is the name to show: the machine's name, or its AI's.
+func (m Msg) who() string {
+	if m.Via == ActorAI {
+		return m.From + "'s AI"
+	}
+	return m.From
+}
+
 type Hello struct {
 	Name    string `json:"name"`
 	Channel string `json:"channel"`
@@ -77,11 +93,51 @@ type Hello struct {
 	Mode    string `json:"mode"` // "watch" | "post" | "fetch"
 }
 
+// Settings come from the environment first, then ~/.collab-config, then the
+// default. The file matters more than it looks: a process started by MCP, by
+// launchd, or by clicking a notification inherits none of your shell, so a
+// setting that lives only in .zshrc works in a terminal and quietly fails
+// everywhere else — under a different name, on the wrong channel.
+//
+//	name    = tankun
+//	channel = roblox
+//	host    = Tankuns-MacBook-Pro.local
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
+	if v := config()[strings.ToLower(strings.TrimPrefix(k, "COLLAB_"))]; v != "" {
+		return v
+	}
 	return def
+}
+
+var (
+	configOnce sync.Once
+	configVals map[string]string
+)
+
+func config() map[string]string {
+	configOnce.Do(func() {
+		configVals = map[string]string{}
+		b, err := os.ReadFile(home(".collab-config"))
+		if err != nil {
+			return
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			k, v, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			if k, v = strings.TrimSpace(k), strings.TrimSpace(v); k != "" && v != "" {
+				configVals[strings.ToLower(k)] = v
+			}
+		}
+	})
+	return configVals
 }
 
 func home(name string) string {
@@ -160,6 +216,7 @@ const usage = `usage:
   collab change -action edited -target "ServerScriptService/Shop" "what changed"
   collab log [-changes]                 history
   collab gui [-no-open] [-notify]        open the window
+  collab who                            show the name, channel and server in use
   collab test-notify                    check that popup notifications work
   collab mcp                            run as an MCP server`
 
@@ -181,6 +238,8 @@ func main() {
 		showLog(os.Args[2:])
 	case "gui":
 		runGUI(os.Args[2:])
+	case "who":
+		who()
 	case "test-notify":
 		testNotify()
 	case "mcp":
