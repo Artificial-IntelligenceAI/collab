@@ -17,6 +17,7 @@ mod msg;
 mod notify;
 mod release;
 mod server;
+mod setup;
 mod wire;
 
 const USAGE: &str = "usage:
@@ -26,6 +27,7 @@ const USAGE: &str = "usage:
   collab post \"message\" [-ai]           send a chat message
   collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\"
   collab log [-changes] [-all]          history
+  collab setup                          first-run setup: server or client, then prove it
   collab who                            show the name, channel, server and key in use
   collab channels [-keys]               channels on this machine
   collab channel add <name> <key>       join a channel someone sent you
@@ -147,6 +149,7 @@ fn main() {
                 std::process::exit(2);
             }
         },
+        "setup" => setup::run(),
         "who" => {
             if take_switch(&mut args, "-json") {
                 config::who_json()

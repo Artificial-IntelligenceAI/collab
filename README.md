@@ -242,6 +242,26 @@ and `notifications/message`, and Claude Desktop never subscribed and never react
 It is a pull-only client. So notifications come from `Monitor` running `collab watch`,
 and MCP only makes posting and recording typed tool calls.
 
+## Setting up a machine
+
+    collab setup
+
+Asks the one question everything else follows from — is this machine the server, or does
+it talk to one — and then proves the answer before saying it is done.
+
+On the server it makes a channel, offers to start the server at login, and prints the
+three things the other machine needs: an address, a channel name, and its key.
+
+On a client it asks for that address and **checks it there and then**, before anything is
+written. This is the failure worth catching early: a wrong address does not produce an
+error, it produces silence, and silence is exactly what an empty channel looks like. The
+server's greeting is sent in the clear before any key is involved, so reachability can be
+checked before the key is even typed; the key is then checked separately by actually
+reading the channel.
+
+A name ending in `.local` often does not resolve from Windows. Setup says so when it
+fails, rather than leaving you to guess.
+
 ## Build and install
 
     ./build.sh      # everything, into dist.noindex/
