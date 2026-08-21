@@ -528,10 +528,10 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
     }
     let mut known: Vec<String> = config::my_names_on(channel)
         .iter()
-        .map(|n| n.to_lowercase())
+        .map(|n| crate::msg::addressable(n))
         .collect();
     for u in users_on(channel) {
-        let n = u.name.to_lowercase();
+        let n = crate::msg::addressable(&u.name);
         if !known.contains(&n) {
             known.push(n);
         }

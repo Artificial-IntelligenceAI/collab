@@ -112,7 +112,7 @@ impl Msg {
         }
         names
             .iter()
-            .any(|n| self.to.iter().any(|t| t == &n.to_lowercase()))
+            .any(|n| self.to.iter().any(|t| *t == addressable(n)))
     }
 
     /// The machine, when it is not already obvious from the name.
@@ -159,6 +159,18 @@ impl Msg {
 
 /// Pulls @names out of a message. A name must follow a space or start the
 /// line, so an email address does not read as three mentions.
+/// A name as an @ can spell it. Mentions stop at whitespace, so a name with a
+/// space in it cannot be written as one — `@Big Fable` parses as `@big` and
+/// reaches nobody. Collapsing the gaps to hyphens on both sides means such a
+/// name is addressable as `@big-fable` while still displaying as it was chosen.
+pub fn addressable(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 pub fn mentions_in(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let chars: Vec<char> = text.chars().collect();

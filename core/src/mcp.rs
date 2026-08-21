@@ -408,10 +408,14 @@ fn call(req: &Value, session_name: &mut Live) -> Value {
 
     match name {
         "collab_join" => {
+            // Joined with hyphens, not spaces. A name with a gap in it cannot
+            // be written as a mention — @Big Fable parses as @big — so a chat
+            // that named itself that way was unaddressable, and the refusal
+            // listed it as a known name, offering a remedy that could not work.
             let chosen: String = arg(req, "name")
                 .split_whitespace()
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join("-")
                 .chars()
                 .take(24)
                 .collect();
