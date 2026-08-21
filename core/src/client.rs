@@ -7,7 +7,6 @@ use crate::history;
 use crate::msg::{Msg, ACTIONS, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
 use crate::notify::Notifier;
 use crate::wire::{Conn, Hello};
-use std::io::Write;
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -54,6 +53,22 @@ pub fn save_seen_for(channel: &str, n: i64, warned: &mut bool) {
             "* cannot record my place in {} — after a reconnect you may see old messages again",
             path.display()
         );
+    }
+}
+
+/// Writes a line, and leaves quietly if whoever was reading has gone.
+///
+/// `println!` panics when stdout is a pipe nobody holds open any more. In a
+/// watcher that panic message goes to the same dead pipe, so it is printed
+/// nowhere at all — and panicking while reporting a panic aborts. That is how
+/// closing the window turned into a crash report, twenty-five times, with
+/// nothing written in any log to say why. A reader leaving is not a failure.
+/// It is the end of the job.
+fn emit(line: &str) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    if writeln!(out, "{line}").is_err() || out.flush().is_err() {
+        std::process::exit(0);
     }
 }
 
@@ -225,12 +240,9 @@ fn report_nothing_subscribed(as_json: bool, all: bool) {
         "this chat is not subscribed to any channel yet — call collab_subscribe"
     };
     if as_json {
-        println!(
-            "{}",
-            serde_json::json!({"type":"status","connected":false,
+        emit(&serde_json::json!({"type":"status","connected":false,
             "error":why,"addr":config::addr(),"from":0})
-        );
-        let _ = std::io::stdout().flush();
+            .to_string());
     } else {
         eprintln!("collab: {why}");
     }
@@ -238,13 +250,10 @@ fn report_nothing_subscribed(as_json: bool, all: bool) {
 
 fn report_unknown(name: &str, as_json: bool) {
     if as_json {
-        println!(
-            "{}",
-            serde_json::json!({"type":"status","connected":false,
+        emit(&serde_json::json!({"type":"status","connected":false,
             "error":format!("no key for #{name} on this machine"),
             "addr":config::addr(),"from":0})
-        );
-        let _ = std::io::stdout().flush();
+            .to_string());
     }
 }
 
@@ -301,14 +310,18 @@ fn watch_one(
             if let Ok(s) = serde_json::to_string(
                 &serde_json::json!({"type":"msg","msg":m,"replayed":replayed}),
             ) {
-                println!("{s}");
+                emit(&s);
             }
         } else if replayed {
-            println!("[{}] (earlier) {}: {}", m.channel, m.label(), m.line());
+            emit(&format!(
+                "[{}] (earlier) {}: {}",
+                m.channel,
+                m.label(),
+                m.line()
+            ));
         } else {
-            println!("[{}] {}: {}", m.channel, m.label(), m.line());
+            emit(&format!("[{}] {}: {}", m.channel, m.label(), m.line()));
         }
-        let _ = std::io::stdout().flush();
         // Backlog is not news. Popping a notification for a message from two
         // hours ago says it has just been said, and an instruction read that
         // way gets acted on a second time.
@@ -327,29 +340,31 @@ fn watch_one(
         let head = if up { Some(head) } else { None };
         let behind = head.map(|h| if h > from { h - from } else { 0 });
         if as_json {
-            println!(
-                "{}",
-                serde_json::json!({
+            emit(
+                &serde_json::json!({
                 "type":"status","connected":up,"from":from,"head":head,
                 "behind":behind,"addr":addr,
                 "channel":channel,"error":err})
+                .to_string(),
             );
-            let _ = std::io::stdout().flush();
             return;
         }
         if up {
             if !first {
-                println!("* reconnected to {addr} #{channel}, resuming from #{from}");
+                emit(&format!(
+                    "* reconnected to {addr} #{channel}, resuming from #{from}"
+                ));
             }
             first = false;
         } else {
             first = false;
             match err {
-                Some(e) => println!("* DISCONNECTED from {addr} #{channel} — {e} — retrying"),
-                None => println!("* DISCONNECTED from {addr} #{channel} — retrying"),
+                Some(e) => emit(&format!(
+                    "* DISCONNECTED from {addr} #{channel} — {e} — retrying"
+                )),
+                None => emit(&format!("* DISCONNECTED from {addr} #{channel} — retrying")),
             }
         }
-        let _ = std::io::stdout().flush();
     };
 
     stream_channel(channel, &cursor, still_wanted, &mut on_msg, &mut on_status);

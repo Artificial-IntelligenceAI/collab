@@ -34,6 +34,37 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// True from the moment AppKit accepts a full screen change until its
+    /// animation ends. A toggle asked for inside that window is dropped, so a
+    /// click landing there would look like a dead button.
+    private(set) var inTransition = false
+    /// Whether the change just asked for was accepted. This is the difference
+    /// between "refused, ask again" and "under way, leave it alone" — which a
+    /// fixed delay can only ever guess at.
+    private var accepted = false
+
+    /// AppKit says when a full screen change begins and ends. Listening is what
+    /// replaces guessing how long becoming a regular app takes.
+    func watchFullScreen() {
+        let nc = NotificationCenter.default
+        for n in [NSWindow.willEnterFullScreenNotification,
+                  NSWindow.willExitFullScreenNotification] {
+            nc.addObserver(forName: n, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    let s = AppState.shared
+                    s.accepted = true
+                    s.inTransition = true
+                }
+            }
+        }
+        for n in [NSWindow.didEnterFullScreenNotification,
+                  NSWindow.didExitFullScreenNotification] {
+            nc.addObserver(forName: n, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { AppState.shared.inTransition = false }
+            }
+        }
+    }
+
     func toggleFullScreen() {
         // macOS will not give native full screen to an accessory app, and this
         // is one so that it lives in the menu bar without a Dock icon. Becoming
@@ -43,13 +74,31 @@ final class AppState: ObservableObject {
             openMainWindow?()
             return
         }
+        // A second click during the animation is not a second request. AppKit
+        // drops it, and acting on it would fight the transition already running.
+        guard !inTransition else { return }
         makeOrdinary(w)
         w.makeKeyAndOrderFront(nil)
-        // The policy change has to reach the window server before the window
-        // will accept going full screen; asking too soon promotes the app and
-        // does nothing else, which looks exactly like the feature not working.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            (self.mainWindow() ?? w).toggleFullScreen(nil)
+        ask(w, want: !w.styleMask.contains(.fullScreen), tries: 0)
+    }
+
+    /// Asks, then checks whether the ask was taken, and asks again if it was
+    /// not. Becoming a regular app has to reach the window server before a
+    /// window may go full screen, and how long that takes is not a fixed
+    /// number — the half second this replaces was right on an idle machine and
+    /// wrong on a busy one, which is the exact shape of "sometimes it works".
+    private func ask(_ w: NSWindow, want: Bool, tries: Int) {
+        guard tries < 12 else { return }
+        accepted = false
+        w.toggleFullScreen(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            MainActor.assumeIsolated {
+                // Accepted, or already where it was asked to be: either way the
+                // job is done and asking again would undo it.
+                guard !self.accepted, w.styleMask.contains(.fullScreen) != want else { return }
+                self.makeOrdinary(w)
+                self.ask(w, want: want, tries: tries + 1)
+            }
         }
     }
 
@@ -88,6 +137,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 guard !wasBacklog else { return }
                 Notifier.post(batch: batch, me: state.core.me)
             }
+            state.watchFullScreen()
             state.core.start()
         }
     }
@@ -132,6 +182,11 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
     @objc func windowWillClose(_ note: Notification) {
         guard let w = note.object as? NSWindow, w.title == "collab" else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Not while a full screen change is running: that tears the window
+            // down and puts it back, and demoting in the middle drops the app
+            // out of full screen for no reason anybody can see.
+            let busy = MainActor.assumeIsolated { AppState.shared.inTransition }
+            if busy { return }
             if NSApp.windows.first(where: { $0.title == "collab" && $0.isVisible }) == nil {
                 NSApp.setActivationPolicy(.accessory)
             }
@@ -281,11 +336,16 @@ struct WindowCapability: NSViewRepresentable {
     private func attach(to v: NSView, tries: Int) {
         guard tries > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            guard let w = v.window else {
-                attach(to: v, tries: tries - 1)
-                return
+            MainActor.assumeIsolated {
+                if let w = v.window {
+                    AppState.shared.makeOrdinary(w)
+                }
             }
-            AppState.shared.makeOrdinary(w)
+            // Keep saying it after the window turns up rather than stopping at
+            // the first success: SwiftUI configures this window itself, and
+            // whichever of us goes last wins. Asking once is why the green
+            // button sometimes only zoomed.
+            attach(to: v, tries: tries - 1)
         }
     }
 
