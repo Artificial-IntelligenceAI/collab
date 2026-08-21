@@ -42,6 +42,7 @@ final class AppState: ObservableObject {
     /// between "refused, ask again" and "under way, leave it alone" — which a
     /// fixed delay can only ever guess at.
     private var accepted = false
+    private var transitionStarted = Date.distantPast
 
     /// AppKit says when a full screen change begins and ends. Listening is what
     /// replaces guessing how long becoming a regular app takes.
@@ -54,6 +55,7 @@ final class AppState: ObservableObject {
                     let s = AppState.shared
                     s.accepted = true
                     s.inTransition = true
+                    s.transitionStarted = Date()
                 }
             }
         }
@@ -91,6 +93,12 @@ final class AppState: ObservableObject {
         }
         // A second click during the animation is not a second request. AppKit
         // drops it, and acting on it would fight the transition already running.
+        // A transition that begins and never reports finishing would leave this
+        // true for ever and the button dead with no way back. macOS can cancel
+        // one. Anything older than a few seconds is not a transition any more.
+        if inTransition && Date().timeIntervalSince(transitionStarted) > 4 {
+            inTransition = false
+        }
         guard !inTransition else { return }
         makeOrdinary(w)
         w.makeKeyAndOrderFront(nil)
