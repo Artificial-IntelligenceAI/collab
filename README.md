@@ -424,3 +424,7 @@ machine here. A native window for that side is still to do.
     app/mac/Sources/     the menu bar app, its window, and the channel panel
     app/mac/icon.swift   generates the icon both platforms use
     notify/windows/      C# toast helper (unverified)
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Tankun Sriket.
