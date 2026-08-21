@@ -220,6 +220,21 @@ namespace Collab
 
         // ── actions ────────────────────────────────────────────
 
+        /// A RichTextBox eats the mouse wheel even with its own scrollbars off,
+        /// so the conversation would stop scrolling whenever the pointer was
+        /// over a message — which is most of the time. Hand the event to the
+        /// list instead.
+        void OnRowWheel(object s, MouseWheelEventArgs e)
+        {
+            if (e.Handled) return;
+            e.Handled = true;
+            Scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source = s,
+            });
+        }
+
         void OnChat(object s, RoutedEventArgs e) { view = "chat"; PaintTabs(); Rebuild(); }
         void OnChanges(object s, RoutedEventArgs e) { view = "changes"; PaintTabs(); Rebuild(); }
         void OnSearch(object s, TextChangedEventArgs e) => Rebuild();

@@ -48,9 +48,13 @@
 
         <StackPanel Grid.Column="2">
           <!-- plain text -->
-          <TextBlock local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
-                     TextWrapping="Wrap"
-                     Visibility="{Binding IsChat, Converter={StaticResource Show}}"/>
+          <RichTextBox local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
+                       Visibility="{Binding IsChat, Converter={StaticResource Show}}"
+                       IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False"
+                       Background="Transparent" BorderThickness="0" Padding="0"
+                       VerticalScrollBarVisibility="Disabled"
+                       HorizontalScrollBarVisibility="Disabled"
+                       PreviewMouseWheel="OnRowWheel"/>
           <!-- a change entry -->
           <StackPanel Orientation="Horizontal"
                       Visibility="{Binding IsChange, Converter={StaticResource Show}}">
@@ -60,10 +64,16 @@
                          Foreground="{Binding AccentFg}"/>
             </Border>
             <StackPanel>
-              <TextBlock Text="{Binding Target}" Foreground="{Binding EmBrush}"
-                         FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
-              <TextBlock local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
-                         TextWrapping="Wrap"/>
+              <TextBox Text="{Binding Target}" Foreground="{Binding EmBrush}"
+                       FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"
+                       IsReadOnly="True" IsTabStop="False" Background="Transparent"
+                       BorderThickness="0" Padding="0"/>
+              <RichTextBox local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
+                           IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False"
+                           Background="Transparent" BorderThickness="0" Padding="0"
+                           VerticalScrollBarVisibility="Disabled"
+                           HorizontalScrollBarVisibility="Disabled"
+                           PreviewMouseWheel="OnRowWheel"/>
             </StackPanel>
           </StackPanel>
           <!-- a file: a card, because it is a thing you act on -->
@@ -75,8 +85,9 @@
               <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="15"
                          Foreground="{Binding CyanBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
               <StackPanel VerticalAlignment="Center" Margin="0,0,14,0">
-                <TextBlock Text="{Binding FileName}" FontFamily="Consolas" FontSize="12"
-                           Foreground="{Binding EmBrush}"/>
+                <TextBox Text="{Binding FileName}" FontFamily="Consolas" FontSize="12"
+                         Foreground="{Binding EmBrush}" IsReadOnly="True" IsTabStop="False"
+                         Background="Transparent" BorderThickness="0" Padding="0"/>
                 <TextBlock Text="{Binding SizeLabel}" FontSize="11" Foreground="{Binding DimBrush}"/>
               </StackPanel>
               <Button Content="Save" Tag="{Binding}" Click="OnSaveFile" Padding="10,3"

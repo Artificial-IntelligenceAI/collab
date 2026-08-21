@@ -24,23 +24,43 @@ namespace Collab
 
         static void OnChanged(DependencyObject o, DependencyPropertyChangedEventArgs e)
         {
-            if (o is not TextBlock tb) return;
-            Fill(tb, e.NewValue as string ?? "");
+            var text = e.NewValue as string ?? "";
+            switch (o)
+            {
+                case TextBlock tb:
+                    tb.Inlines.Clear();
+                    foreach (var i in Build(text, tb.FontSize)) tb.Inlines.Add(i);
+                    break;
+                // A RichTextBox so the text can be selected and copied.
+                // TextBlock cannot do it at all — WPF has no equivalent of
+                // WinUI's IsTextSelectionEnabled — and a plain TextBox cannot
+                // hold the inline images the emoji are made of.
+                case RichTextBox rtb:
+                    var para = new Paragraph { Margin = new Thickness(0) };
+                    foreach (var i in Build(text, rtb.FontSize)) para.Inlines.Add(i);
+                    rtb.Document = new FlowDocument(para)
+                    {
+                        PagePadding = new Thickness(0),
+                        FontFamily = rtb.FontFamily,
+                        FontSize = rtb.FontSize,
+                    };
+                    break;
+            }
         }
 
-        static void Fill(TextBlock tb, string text)
+        static IEnumerable<Inline> Build(string text, double fontSize)
         {
-            tb.Inlines.Clear();
-            if (text.Length == 0) return;
-            if (!EmojiFont.Available) { tb.Inlines.Add(new Run(text)); return; }
+            var made = new List<Inline>();
+            if (text.Length == 0) return made;
+            if (!EmojiFont.Available) { made.Add(new Run(text)); return made; }
 
-            double size = tb.FontSize > 0 ? tb.FontSize : 13;
+            double size = fontSize > 0 ? fontSize : 13;
             var buffer = new System.Text.StringBuilder();
 
             void FlushText()
             {
                 if (buffer.Length == 0) return;
-                tb.Inlines.Add(new Run(buffer.ToString()));
+                made.Add(new Run(buffer.ToString()));
                 buffer.Clear();
             }
 
@@ -59,7 +79,7 @@ namespace Collab
                 if (img == null) { buffer.Append(text, i, width); i += width; continue; }
 
                 FlushText();
-                tb.Inlines.Add(new InlineUIContainer(new Image
+                made.Add(new InlineUIContainer(new Image
                 {
                     Source = img,
                     Width = size * 1.25,
@@ -71,6 +91,7 @@ namespace Collab
                 i += width;
             }
             FlushText();
+            return made;
         }
     }
 }
