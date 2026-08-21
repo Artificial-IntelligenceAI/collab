@@ -212,7 +212,7 @@ fn text(s: String) -> Value {
 pub fn run() {
     // One `collab mcp` process is spawned per chat, so a name held here is a
     // per-chat identity by construction — nothing to register, nothing to expire.
-    let mut session_name: Option<String> = None;
+    let mut session_name = Live::default();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines().map_while(Result::ok) {
@@ -271,7 +271,20 @@ pub fn run() {
 /// What this chat is, taking the file as the truth and in-process memory only
 /// as a fallback. The MCP server can be restarted under a chat that has already
 /// joined, and telling it to join again when it plainly has would be a lie.
-fn joined(live: &Option<String>) -> (Option<String>, Vec<String>) {
+/// What this chat has said about itself, for as long as this process lives.
+/// The file under ~/.collab-sessions is the durable copy and wins whenever
+/// there is one. This is the fallback — and it has to carry the channels as
+/// well as the name, because a client that sets no session id has no file at
+/// all. Keeping only the name here meant join stored a name, dropped the
+/// channel list on the floor, and reported success; the next post then said
+/// "listening to: nothing", which was true and told nobody why.
+#[derive(Default)]
+struct Live {
+    name: Option<String>,
+    channels: Vec<String>,
+}
+
+fn joined(live: &Live) -> (Option<String>, Vec<String>) {
     if !config::session_id().is_empty() {
         if let Some(s) = config::session() {
             let name = Some(s.name.clone()).filter(|n| !n.is_empty());
@@ -280,7 +293,7 @@ fn joined(live: &Option<String>) -> (Option<String>, Vec<String>) {
             }
         }
     }
-    (live.clone(), config::session_channels())
+    (live.name.clone(), live.channels.clone())
 }
 
 fn arg_list(req: &Value, k: &str) -> Vec<String> {
@@ -302,14 +315,14 @@ fn arg_list(req: &Value, k: &str) -> Vec<String> {
 /// The name this chat posts under — from the file, so a restarted MCP server
 /// keeps the identity the chat already chose rather than quietly reverting to
 /// the machine's own name.
-fn posting_name(live: &Option<String>) -> Option<String> {
+fn posting_name(live: &Live) -> Option<String> {
     joined(live).0
 }
 
 /// Which channel a post belongs to. Listening to several is allowed; guessing
 /// between them is not — a message in the wrong room is worse than a refusal,
 /// because nobody finds out.
-fn post_target(req: &Value, live: &Option<String>) -> Result<String, String> {
+fn post_target(req: &Value, live: &Live) -> Result<String, String> {
     let (name, subs) = joined(live);
     if name.is_none() {
         return Err(needs_join());
@@ -374,7 +387,7 @@ fn arg<'a>(req: &'a Value, k: &str) -> &'a str {
         .unwrap_or("")
 }
 
-fn call(req: &Value, session_name: &mut Option<String>) -> Value {
+fn call(req: &Value, session_name: &mut Live) -> Value {
     let name = req
         .pointer("/params/name")
         .and_then(|v| v.as_str())
@@ -407,7 +420,8 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
             match subscribe_to(&wanted) {
                 Err(e) => text(e),
                 Ok(ok) => {
-                    *session_name = Some(chosen.clone());
+                    session_name.name = Some(chosen.clone());
+                    session_name.channels = ok.clone();
                     config::save_session(&chosen, &ok);
                     let channels = ok
                         .iter()
@@ -449,6 +463,7 @@ background command to you, `collab watch` is what makes them arrive unasked.",
             };
             let wanted = arg_list(req, "channels");
             if wanted.is_empty() {
+                session_name.channels.clear();
                 config::save_session(&name, &[]);
                 return text(
                     "listening to nothing now. Messages will not reach this chat at all until \
@@ -459,6 +474,7 @@ you subscribe again."
             match subscribe_to(&wanted) {
                 Err(e) => text(e),
                 Ok(ok) => {
+                    session_name.channels = ok.clone();
                     config::save_session(&name, &ok);
                     text(format!(
                         "listening to {}. {}",

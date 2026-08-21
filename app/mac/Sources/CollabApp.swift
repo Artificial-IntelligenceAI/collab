@@ -175,6 +175,14 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
         false // closing the window is not quitting; the popups carry on
     }
 
+    /// Take the watcher with us. Left behind, it holds a pipe whose reader has
+    /// gone and lingers until the next message, and every quit leaves another
+    /// one waiting. They used to die loudly too — an abort and a crash report
+    /// apiece — which is how twenty-five of those came to exist.
+    func applicationWillTerminate(_ note: Notification) {
+        MainActor.assumeIsolated { AppState.shared.core.stop() }
+    }
+
     /// Going full screen turns this into a regular app, because macOS will not
     /// give full screen to a menu bar one. Closing the window puts it back —
     /// otherwise a single use of full screen would leave a Dock icon behind for
