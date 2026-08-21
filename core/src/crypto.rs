@@ -52,7 +52,13 @@ impl Sealer {
         let nonce = XNonce::from_slice(&nonce_bytes);
         let ct = self
             .cipher
-            .encrypt(nonce, Payload { msg: plain, aad: &self.aad })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plain,
+                    aad: &self.aad,
+                },
+            )
             .expect("encrypt");
         let mut frame = nonce_bytes;
         frame.extend_from_slice(&ct);
@@ -68,7 +74,13 @@ impl Sealer {
         }
         let (nonce, ct) = raw.split_at(NONCE_LEN);
         self.cipher
-            .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: &self.aad })
+            .decrypt(
+                XNonce::from_slice(nonce),
+                Payload {
+                    msg: ct,
+                    aad: &self.aad,
+                },
+            )
             .map_err(|_| io::Error::other("that frame does not open with this channel's key"))
     }
 }

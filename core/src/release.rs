@@ -126,9 +126,15 @@ pub fn sign_release(dir: &Path, version: &str, notes: &str, key_b64: &str) -> Re
     let body = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     let sig = signing.sign(&body);
     std::fs::write(dir.join(MANIFEST), &body).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(format!("{MANIFEST}.sig")), B64.encode(sig.to_bytes()))
-        .map_err(|e| e.to_string())?;
-    println!("signed {} file(s) as version {version}", manifest.files.len());
+    std::fs::write(
+        dir.join(format!("{MANIFEST}.sig")),
+        B64.encode(sig.to_bytes()),
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "signed {} file(s) as version {version}",
+        manifest.files.len()
+    );
     for name in manifest.files.keys() {
         println!("  {name}");
     }
@@ -138,7 +144,11 @@ pub fn sign_release(dir: &Path, version: &str, notes: &str, key_b64: &str) -> Re
 fn collect(root: &Path, dir: &Path, out: &mut BTreeMap<String, Artifact>) -> Result<(), String> {
     for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
         let path = entry.path();
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if name.starts_with('.') || name.starts_with(MANIFEST) {
             continue;
         }
@@ -153,7 +163,10 @@ fn collect(root: &Path, dir: &Path, out: &mut BTreeMap<String, Artifact>) -> Res
                 .to_string();
             out.insert(
                 rel,
-                Artifact { sha256: crate::files::hash_bytes(&data), size: data.len() as u64 },
+                Artifact {
+                    sha256: crate::files::hash_bytes(&data),
+                    size: data.len() as u64,
+                },
             );
         }
     }
@@ -222,8 +235,9 @@ pub fn check() -> Result<Available, String> {
     let base = source().ok_or_else(|| {
         "no update source set — put `update_url = …` in ~/.collab-config".to_string()
     })?;
-    let key = verifying_key()
-        .ok_or_else(|| "this build carries no release key, so it cannot verify an update".to_string())?;
+    let key = verifying_key().ok_or_else(|| {
+        "this build carries no release key, so it cannot verify an update".to_string()
+    })?;
 
     let body = fetch(&format!("{base}/{MANIFEST}"))?;
     let sig_raw = fetch(&format!("{base}/{MANIFEST}.sig"))?;
@@ -235,11 +249,12 @@ pub fn check() -> Result<Available, String> {
         .map_err(|_| "the signature is the wrong length".to_string())?;
     let sig = Signature::from_bytes(&sig_bytes);
 
-    key.verify(&body, &sig)
-        .map_err(|_| "the release is not signed by the key this build trusts — refusing it".to_string())?;
+    key.verify(&body, &sig).map_err(|_| {
+        "the release is not signed by the key this build trusts — refusing it".to_string()
+    })?;
 
-    let manifest: Manifest =
-        serde_json::from_slice(&body).map_err(|_| "the release manifest is malformed".to_string())?;
+    let manifest: Manifest = serde_json::from_slice(&body)
+        .map_err(|_| "the release manifest is malformed".to_string())?;
     Ok(Available { manifest, base })
 }
 
@@ -247,7 +262,11 @@ pub fn platform_files() -> Vec<&'static str> {
     if cfg!(target_os = "macos") {
         vec!["macos-arm64/collab", "macos-arm64/Collab.app.tar.gz"]
     } else {
-        vec!["windows-x64/collab.exe", "windows-x64/collab-notify.exe", "windows-x64/collab.png"]
+        vec![
+            "windows-x64/collab.exe",
+            "windows-x64/collab-notify.exe",
+            "windows-x64/collab.png",
+        ]
     }
 }
 
@@ -266,10 +285,16 @@ pub fn download(av: &Available) -> Result<PathBuf, String> {
         };
         let data = fetch(&format!("{}/{name}", av.base))?;
         if data.len() as u64 != want.size || crate::files::hash_bytes(&data) != want.sha256 {
-            return Err(format!("{name} does not match the signed manifest — nothing installed"));
+            return Err(format!(
+                "{name} does not match the signed manifest — nothing installed"
+            ));
         }
         let out = dir.join(crate::files::safe_component(
-            Path::new(name).file_name().unwrap_or_default().to_string_lossy().as_ref(),
+            Path::new(name)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .as_ref(),
         ));
         std::fs::write(&out, &data).map_err(|e| e.to_string())?;
     }
@@ -285,7 +310,11 @@ pub fn download(av: &Available) -> Result<PathBuf, String> {
 pub fn install(dir: &Path) -> Result<Vec<String>, String> {
     let mut done = Vec::new();
 
-    let bin = dir.join(if cfg!(target_os = "windows") { "collab.exe" } else { "collab" });
+    let bin = dir.join(if cfg!(target_os = "windows") {
+        "collab.exe"
+    } else {
+        "collab"
+    });
     if bin.exists() {
         let target = std::env::current_exe().map_err(|e| e.to_string())?;
         let target = std::fs::canonicalize(&target).unwrap_or(target);
@@ -296,7 +325,8 @@ pub fn install(dir: &Path) -> Result<Vec<String>, String> {
         } else {
             let _ = std::fs::remove_file(&target);
         }
-        std::fs::copy(&bin, &target).map_err(|e| format!("cannot replace {} — {e}", target.display()))?;
+        std::fs::copy(&bin, &target)
+            .map_err(|e| format!("cannot replace {} — {e}", target.display()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

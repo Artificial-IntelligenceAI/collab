@@ -134,7 +134,12 @@ pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
     let mut reg = load();
     reg.insert(
         name.clone(),
-        Channel { key, created: crate::msg::now(), mine: false, creator: creator.trim().to_string() },
+        Channel {
+            key,
+            created: crate::msg::now(),
+            mine: false,
+            creator: creator.trim().to_string(),
+        },
     );
     save(&reg).map_err(|e| e.to_string())?;
     Ok(name)

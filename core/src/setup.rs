@@ -26,7 +26,11 @@ fn ask(question: &str, default: &str) -> String {
     let mut s = String::new();
     let _ = std::io::stdin().read_line(&mut s);
     let s = s.trim().to_string();
-    if s.is_empty() { default.to_string() } else { s }
+    if s.is_empty() {
+        default.to_string()
+    } else {
+        s
+    }
 }
 
 fn ask_secret(question: &str) -> String {
@@ -46,18 +50,31 @@ fn ask_secret(question: &str) -> String {
 }
 
 fn yes(question: &str) -> bool {
-    matches!(ask(&format!("{question} (y/n)"), "y").to_lowercase().as_str(), "y" | "yes")
+    matches!(
+        ask(&format!("{question} (y/n)"), "y")
+            .to_lowercase()
+            .as_str(),
+        "y" | "yes"
+    )
 }
 
 /// Is there a collab server there, and does it speak our protocol? The greeting
 /// is sent before any key, so this can be answered without one — which is what
 /// lets an address be checked before a key has even been handed over.
 pub fn probe(addr: &str) -> Result<u32, String> {
-    let target = if addr.contains(':') { addr.to_string() } else { format!("{addr}:{}", config::port()) };
+    let target = if addr.contains(':') {
+        addr.to_string()
+    } else {
+        format!("{addr}:{}", config::port())
+    };
     let sock: Vec<std::net::SocketAddr> = std::net::ToSocketAddrs::to_socket_addrs(&target)
-        .map_err(|_| format!("cannot look up {target} — check the spelling, or use the IP address"))?
+        .map_err(|_| {
+            format!("cannot look up {target} — check the spelling, or use the IP address")
+        })?
         .collect();
-    let first = sock.first().ok_or_else(|| format!("{target} resolves to nothing"))?;
+    let first = sock
+        .first()
+        .ok_or_else(|| format!("{target} resolves to nothing"))?;
     let stream = TcpStream::connect_timeout(first, Duration::from_secs(5))
         .map_err(|e| format!("nothing answered at {target} — {e}"))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
@@ -103,7 +120,9 @@ fn save(pairs: &[(&str, String)]) -> std::io::Result<()> {
 pub fn run() {
     println!("collab setup\n");
     println!("One machine runs the server. Everyone else connects to it. The server needs to");
-    println!("be awake for anybody to send anything, so it should be the machine that stays put.\n");
+    println!(
+        "be awake for anybody to send anything, so it should be the machine that stays put.\n"
+    );
 
     let server = yes("Is this machine the server?");
     println!();
@@ -116,7 +135,10 @@ pub fn run() {
 }
 
 fn setup_server() {
-    let name = ask("What should you be called on the channel?", &config::hostname());
+    let name = ask(
+        "What should you be called on the channel?",
+        &config::hostname(),
+    );
     let _ = save(&[("name", name.clone())]);
 
     // A server with no channel is a server nobody can connect to, since a
@@ -148,7 +170,10 @@ fn setup_server() {
 
     println!();
     match probe("localhost") {
-        Ok(v) => println!("✓ server answering on port {} (collab v{v})", config::port()),
+        Ok(v) => println!(
+            "✓ server answering on port {} (collab v{v})",
+            config::port()
+        ),
         Err(e) => {
             println!("✗ the server is not answering yet — {e}");
             println!("  start it with:  collab serve");
@@ -166,7 +191,10 @@ fn setup_server() {
 }
 
 fn setup_client() {
-    let name = ask("What should you be called on the channel?", &config::hostname());
+    let name = ask(
+        "What should you be called on the channel?",
+        &config::hostname(),
+    );
 
     // Checked before anything is written: an address that does not resolve is
     // the failure that costs an afternoon, because it looks like silence.
@@ -208,7 +236,10 @@ fn setup_client() {
     if seen.is_empty() {
         println!("✓ joined #{channel} — nothing there yet");
     } else {
-        println!("✓ joined #{channel} — {} message(s) already there", seen.len());
+        println!(
+            "✓ joined #{channel} — {} message(s) already there",
+            seen.len()
+        );
         if let Some(last) = seen.last() {
             println!("  latest: {}: {}", last.label(), last.line());
         }

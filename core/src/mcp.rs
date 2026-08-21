@@ -18,12 +18,12 @@ fn tools() -> Value {
       {
         "name": "collab_join",
         "description": "Say who you are and which channels you are listening to, for this chat only. \
-Required before you can post anything — collab_post and collab_change refuse until you have. \
-Call it once, early. The name is yours to pick: something short saying which part of the project \
-this chat is working on (\"shop\", \"lobby-audio\"). The channels are not yours to pick — they have \
-to be ones this machine already holds keys for, made by a person in the collab app. Call \
-collab_recent first if you do not know which exist. You may listen to several at once; use \
-collab_subscribe afterwards to change the set.",
+    Required before you can post anything — collab_post and collab_change refuse until you have. \
+    Call it once, early. The name is yours to pick: something short saying which part of the project \
+    this chat is working on (\"shop\", \"lobby-audio\"). The channels are not yours to pick — they have \
+    to be ones this machine already holds keys for, made by a person in the collab app. Call \
+    collab_recent first if you do not know which exist. You may listen to several at once; use \
+    collab_subscribe afterwards to change the set.",
         "inputSchema": {"type":"object","properties":{
             "name":     {"type":"string","description":"Short name for this chat, e.g. \"shop\"."},
             "channels": {"type":"array","items":{"type":"string"},
@@ -33,10 +33,10 @@ collab_subscribe afterwards to change the set.",
       {
         "name": "collab_subscribe",
         "description": "Change which channels this chat is listening to. Replaces the whole set, so \
-pass every channel you want, not only the new ones. Passing an empty list stops listening \
-altogether. Messages on a channel you are not subscribed to will not reach you at all — that is \
-the point of it, but it also means a channel you drop goes silent rather than telling you \
-anything.",
+    pass every channel you want, not only the new ones. Passing an empty list stops listening \
+    altogether. Messages on a channel you are not subscribed to will not reach you at all — that is \
+    the point of it, but it also means a channel you drop goes silent rather than telling you \
+    anything.",
         "inputSchema": {"type":"object","properties":{
             "channels": {"type":"array","items":{"type":"string"},
                          "description":"The complete set of channels to listen to."}},
@@ -45,9 +45,9 @@ anything.",
       {
         "name": "collab_post",
         "description": "Send a chat message to the other person's Claude. Use it to say what you are \
-about to touch, to ask them something, or to answer them. For recording something you actually \
-changed, use collab_change instead. Requires collab_join first. If you are listening to more \
-than one channel you must say which one this goes to.",
+    about to touch, to ask them something, or to answer them. For recording something you actually \
+    changed, use collab_change instead. Requires collab_join first. If you are listening to more \
+    than one channel you must say which one this goes to.",
         "inputSchema": {"type":"object","properties":{
             "message": {"type":"string","description":"What to tell them."},
             "channel": {"type":"string","description":"Which channel. Only optional when you are listening to exactly one."}},
@@ -56,10 +56,10 @@ than one channel you must say which one this goes to.",
       {
         "name": "collab_change",
         "description": "Record something you just changed, as a structured entry. This is what fills \
-the Changes view — a git log for a project that cannot use git, because Roblox saves a binary \
-.rbxl. Call it right after you make a change, once per script or instance you touched. Only \
-record what you actually did; never infer an entry from what someone said. Requires collab_join \
-first. If you are listening to more than one channel you must say which one this belongs to.",
+    the Changes view — a git log for a project that cannot use git, because Roblox saves a binary \
+    .rbxl. Call it right after you make a change, once per script or instance you touched. Only \
+    record what you actually did; never infer an entry from what someone said. Requires collab_join \
+    first. If you are listening to more than one channel you must say which one this belongs to.",
         "inputSchema": {"type":"object","properties":{
             "action":  {"type":"string","enum":ACTIONS,"description":"What you did: added, edited, removed or renamed."},
             "target":  {"type":"string","description":"Which script or instance, as a path — e.g. ServerScriptService/ShopHandler."},
@@ -70,10 +70,10 @@ first. If you are listening to more than one channel you must say which one this
       {
         "name": "collab_send_file",
         "description": "Send a file from this machine to the other person. Use it for a script, a \
-screenshot, a model — anything they need the actual bytes of rather than a description. The file \
-is carried once and stored by content, so sending the same bytes twice costs nothing. Say in the \
-caption what it is for; a file arriving with no explanation is a puzzle. Requires collab_join, \
-and a channel if you are listening to more than one.",
+    screenshot, a model — anything they need the actual bytes of rather than a description. The file \
+    is carried once and stored by content, so sending the same bytes twice costs nothing. Say in the \
+    caption what it is for; a file arriving with no explanation is a puzzle. Requires collab_join, \
+    and a channel if you are listening to more than one.",
         "inputSchema": {"type":"object","properties":{
             "path":    {"type":"string","description":"Absolute path of the file on this machine."},
             "caption": {"type":"string","description":"What it is and why you are sending it."},
@@ -83,25 +83,25 @@ and a channel if you are listening to more than one.",
       {
         "name": "collab_users",
         "description": "Who is on a channel — the names you can address with @name, whether each is \
-a person or an AI, which machine they spoke from, and when they were last heard. There is no \
-register of members: a channel is a key and holding it is all it takes, so this is who has \
-actually spoken. Somebody set up but silent will not appear, and cannot be mentioned yet.",
+    a person or an AI, which machine they spoke from, and when they were last heard. There is no \
+    register of members: a channel is a key and holding it is all it takes, so this is who has \
+    actually spoken. Somebody set up but silent will not appear, and cannot be mentioned yet.",
         "inputSchema": {"type":"object","properties":{
             "channel": {"type":"string","description":"One channel. Omit for everything you are listening to."}}}
       },
       {
         "name": "collab_files",
         "description": "List the files that have been sent on a channel, oldest first, with their \
-sizes and who sent them. The bytes are not fetched by this — use collab_get_file for that.",
+    sizes and who sent them. The bytes are not fetched by this — use collab_get_file for that.",
         "inputSchema": {"type":"object","properties":{
             "channel": {"type":"string","description":"One channel. Omit for everything you are listening to."}}}
       },
       {
         "name": "collab_get_file",
         "description": "Download a file somebody sent, by name or by the start of its hash, and \
-write it to this machine. What arrives is checked against the hash before anything is written, so \
-a file that does not match is refused rather than saved. Saves into ~/Downloads/collab unless you \
-say otherwise, and never overwrites: a second copy is numbered.",
+    write it to this machine. What arrives is checked against the hash before anything is written, so \
+    a file that does not match is refused rather than saved. Saves into ~/Downloads/collab unless you \
+    say otherwise, and never overwrites: a second copy is numbered.",
         "inputSchema": {"type":"object","properties":{
             "file":    {"type":"string","description":"The file's name, or the first few characters of its hash."},
             "save_to": {"type":"string","description":"Folder to write it into. Defaults to ~/Downloads/collab."},
@@ -138,8 +138,15 @@ fn needs_join() -> String {
         "REFUSED: this chat has not joined yet. Call collab_join with a name and the channels \
 to listen to, then send this again. Nothing was posted.\n\nChannels available here: {}\n\nThey \
 must be from that list. A channel only works if both machines hold its key, so one that is not \
-listed cannot be reached from here at all.",
-        channel_list()
+listed cannot be reached from here at all.{}",
+        channel_list(),
+        if config::session_id().is_empty() {
+            "\n\nIf you did just call collab_join and got this anyway: this client sets no \
+CLAUDE_CODE_SESSION_ID, so the join had nowhere to be recorded and cannot stick. Repeating it \
+will not help. Reading tools still work."
+        } else {
+            ""
+        }
     )
 }
 
@@ -147,7 +154,10 @@ listed cannot be reached from here at all.",
 /// nothing: a partial subscription would leave a chat believing it was listening
 /// somewhere it was not.
 fn subscribe_to(wanted: &[String]) -> Result<Vec<String>, String> {
-    let missing: Vec<&String> = wanted.iter().filter(|c| channels::get(c).is_none()).collect();
+    let missing: Vec<&String> = wanted
+        .iter()
+        .filter(|c| channels::get(c).is_none())
+        .collect();
     if !missing.is_empty() {
         return Err(format!(
             "no channel{} {} on this machine, so there is no key and nothing to listen to. \
@@ -155,7 +165,11 @@ Channels are made by a person, with the button in the collab app — an AI canno
 because a key that has not been handed to the other machine is a room with nobody in \
 it.\n\nAvailable here: {}",
             if missing.len() == 1 { "" } else { "s" },
-            missing.iter().map(|c| format!("#{c}")).collect::<Vec<_>>().join(", "),
+            missing
+                .iter()
+                .map(|c| format!("#{c}"))
+                .collect::<Vec<_>>()
+                .join(", "),
             channel_list()
         ));
     }
@@ -212,18 +226,18 @@ pub fn run() {
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name":"collab","version":"3.0.0"},
                     "instructions": "Call collab_join once, before posting anything, with a name for this \
-chat and the channel the project uses. Until you do, collab_post and collab_change refuse. The \
-name keeps this chat apart from other chats on the same machine, which would otherwise all be \
-one indistinguishable voice. The channel keeps this project apart from every other one on the \
-machine — but it must match what the other person is on, so look at collab_recent or \
-collab_changes and join a channel that already has traffic rather than inventing one. A \
-mismatched channel is not an error, it is silence.\n\nNOTHING HERE WILL NOTIFY YOU. These \
-are tools you call; no message can arrive on its own, because an MCP server cannot push into \
-a session. To know what the other person has said you must call collab_recent yourself — a \
-quiet channel and a channel you have simply not read look identical from in here. If your \
-harness can run a command in the background and show you its output (Claude Code's Monitor, \
-for instance), `collab watch` prints each message as it arrives and is the only way they \
-reach you unasked; ask the person you are working with to set it up if it matters."
+                chat and the channel the project uses. Until you do, collab_post and collab_change refuse. The \
+                name keeps this chat apart from other chats on the same machine, which would otherwise all be \
+                one indistinguishable voice. The channel keeps this project apart from every other one on the \
+                machine — but it must match what the other person is on, so look at collab_recent or \
+                collab_changes and join a channel that already has traffic rather than inventing one. A \
+                mismatched channel is not an error, it is silence.\n\nNOTHING HERE WILL NOTIFY YOU. These \
+                are tools you call; no message can arrive on its own, because an MCP server cannot push into \
+                a session. To know what the other person has said you must call collab_recent yourself — a \
+                quiet channel and a channel you have simply not read look identical from in here. If your \
+                harness can run a command in the background and show you its output (Claude Code's Monitor, \
+                for instance), `collab watch` prints each message as it arrives and is the only way they \
+                reach you unasked; ask the person you are working with to set it up if it matters."
                 }))
             }
             "tools/list" => Some(json!({"tools": tools()})),
@@ -269,7 +283,10 @@ fn arg_list(req: &Value, k: &str) -> Vec<String> {
             .map(channels::tidy)
             .filter(|s| !s.is_empty())
             .collect(),
-        Some(Value::String(s)) => vec![channels::tidy(s)].into_iter().filter(|s| !s.is_empty()).collect(),
+        Some(Value::String(s)) => vec![channels::tidy(s)]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -295,15 +312,21 @@ fn post_target(req: &Value, live: &Option<String>) -> Result<String, String> {
             return Err(format!(
                 "not listening to #{asked}, so nothing was sent. This chat is listening to: {}. \
 Use collab_subscribe to add it, or post to one of those.",
-                if subs.is_empty() { "nothing".into() } else { subs.join(", ") }
+                if subs.is_empty() {
+                    "nothing".into()
+                } else {
+                    subs.join(", ")
+                }
             ));
         }
         return Ok(asked);
     }
     match subs.len() {
-        0 => Err("this chat is not listening to any channel — call collab_subscribe first. \
+        0 => Err(
+            "this chat is not listening to any channel — call collab_subscribe first. \
 Nothing was sent."
-            .into()),
+                .into(),
+        ),
         1 => Ok(subs[0].clone()),
         _ => Err(format!(
             "this chat is listening to several channels ({}), so it is not clear where this \
@@ -378,11 +401,34 @@ fn call(req: &Value, session_name: &mut Option<String>) -> Value {
                 Ok(ok) => {
                     *session_name = Some(chosen.clone());
                     config::save_session(&chosen, &ok);
+                    let channels = ok
+                        .iter()
+                        .map(|c| format!("#{c}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    // Membership lives in a file named after the chat. A client
+                    // that sets no session id has nowhere to keep it, so the
+                    // name lasts exactly as long as this process — which for a
+                    // client that starts a fresh one per call is no time at all.
+                    // Reporting success here and refusing the next post is the
+                    // dead end this says out loud instead.
+                    if config::session_id().is_empty() {
+                        return text(format!(
+                            "PARTLY: you are \"{chosen}\" on {channels} (on {}) — but only while \
+this process lives. {}\n\nThis client sets no CLAUDE_CODE_SESSION_ID, so there is nowhere to \
+record the membership. If your next tool call runs in a fresh process it will not know you \
+joined, and collab_post and collab_change will refuse. Calling join again will not fix it — the \
+refusal is not about the name.\n\nReading works regardless: collab_recent, collab_changes, \
+collab_users, collab_files and collab_get_file need no join. If you need to post from here, say \
+so to the person you are working with — it needs a change at our end, not at yours.",
+                            config::name(),
+                            describe(&ok)
+                        ));
+                    }
                     text(format!(
-                        "you are \"{chosen}\" on {} for this chat (on {}). {}\n\nNothing \
+                        "you are \"{chosen}\" on {channels} for this chat (on {}). {}\n\nNothing \
 will notify you of new messages — call collab_recent to see them. If your harness can stream a \
 background command to you, `collab watch` is what makes them arrive unasked.",
-                        ok.iter().map(|c| format!("#{c}")).collect::<Vec<_>>().join(", "),
                         config::name(),
                         describe(&ok)
                     ))
@@ -408,7 +454,10 @@ you subscribe again."
                     config::save_session(&name, &ok);
                     text(format!(
                         "listening to {}. {}",
-                        ok.iter().map(|c| format!("#{c}")).collect::<Vec<_>>().join(", "),
+                        ok.iter()
+                            .map(|c| format!("#{c}"))
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         describe(&ok)
                     ))
                 }
@@ -494,7 +543,11 @@ you subscribe again."
                     continue;
                 }
                 for u in users {
-                    let at = if u.last_at.len() >= 16 { &u.last_at[11..16] } else { "--:--" };
+                    let at = if u.last_at.len() >= 16 {
+                        &u.last_at[11..16]
+                    } else {
+                        "--:--"
+                    };
                     let host = if u.host.is_empty() || u.host == u.name {
                         String::new()
                     } else {
@@ -522,7 +575,11 @@ you subscribe again."
                             crate::files::human(f.size),
                             f.name,
                             m.label(),
-                            if m.text.is_empty() { String::new() } else { format!(" — {}", m.text) }
+                            if m.text.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" — {}", m.text)
+                            }
                         ));
                     }
                 }

@@ -227,7 +227,9 @@ pub fn save_session(name: &str, chans: &[String]) {
 /// Chats end without saying so, so their files would pile up for ever.
 fn prune_sessions(dir: &std::path::Path) {
     let week = std::time::Duration::from_secs(7 * 24 * 60 * 60);
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let stale = e
             .metadata()
@@ -267,11 +269,7 @@ pub fn who() {
             let _ = writeln!(out, "popups   {:<28} {}", state, h.display());
         }
         None => {
-            let _ = writeln!(
-                out,
-                "popups   {:<28} no notifier installed",
-                "unavailable"
-            );
+            let _ = writeln!(out, "popups   {:<28} no notifier installed", "unavailable");
         }
     }
 }

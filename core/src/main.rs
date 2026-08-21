@@ -24,8 +24,8 @@ const USAGE: &str = "usage:
   collab serve                          run the server (one machine only)
   collab watch [-json] [-notify] [-all] [-since N] [-no-save]
                                         stream messages — this is what Monitor runs
-  collab post \"message\" [-ai]           send a chat message
-  collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\"
+  collab post \"message\" [-ai] [-c chan] send a chat message
+  collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\" [-c chan]
   collab log [-changes] [-all]          history
   collab setup                          first-run setup: server or client, then prove it
   collab who                            show the name, channel, server and key in use
@@ -38,6 +38,25 @@ const USAGE: &str = "usage:
   collab mcp                            run as an MCP server";
 
 /// Pulls `-name value` out of the arguments, leaving the rest as free text.
+/// A message must not be able to swallow a flag. Someone reaching for one that
+/// does not exist is usually testing exactly the thing it would have changed —
+/// `post -c other "..."` before -c existed went to the default channel, carried
+/// "-c other" in its body, and reported success. Only the first word is checked,
+/// so a message may still begin with a dash.
+fn reject_unknown_flag(args: &[String], cmd: &str) {
+    let Some(first) = args.first() else { return };
+    let looks_like_flag = first.len() > 1
+        && first.starts_with('-')
+        && first[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+    if looks_like_flag {
+        eprintln!(
+            "collab: {cmd} does not know the option {first}, and will not send it as text.\n\n{}",
+            USAGE
+        );
+        std::process::exit(2);
+    }
+}
+
 fn take_flag(args: &mut Vec<String>, name: &str) -> Option<String> {
     let i = args.iter().position(|a| a == name)?;
     args.remove(i);
@@ -78,13 +97,17 @@ fn main() {
         }
         "post" => {
             let ai = take_switch(&mut args, "-ai");
-            client::post(&args.join(" "), ai)
+            let channel = take_flag(&mut args, "-c");
+            reject_unknown_flag(&args, "post");
+            client::post(&args.join(" "), ai, channel.as_deref())
         }
         "change" => {
             let ai = take_switch(&mut args, "-ai");
+            let channel = take_flag(&mut args, "-c");
             let action = take_flag(&mut args, "-action").unwrap_or_default();
             let target = take_flag(&mut args, "-target").unwrap_or_default();
-            client::change(&action, &target, &args.join(" "), ai)
+            reject_unknown_flag(&args, "change");
+            client::change(&action, &target, &args.join(" "), ai, channel.as_deref())
         }
         "log" => client::show_log(
             take_switch(&mut args, "-changes"),
@@ -117,42 +140,46 @@ fn main() {
             take_switch(&mut args, "-yes"),
             take_switch(&mut args, "-json"),
         ),
-        "release" => match args.first().map(String::as_str) {
-            Some("keygen") => release::keygen(),
-            Some("sign") => {
-                let version = take_flag(&mut args, "-version").unwrap_or_default();
-                let notes = take_flag(&mut args, "-notes").unwrap_or_default();
-                let key = take_flag(&mut args, "-key").unwrap_or_default();
-                let dir = args.get(1).map(String::as_str).unwrap_or("");
-                if dir.is_empty() || version.is_empty() || key.is_empty() {
-                    eprintln!("usage: collab release sign <dir> -version X.Y.Z -key <private> [-notes \"...\"]");
-                    std::process::exit(2);
-                }
-                if let Err(e) = release::sign_release(std::path::Path::new(dir), &version, &notes, &key) {
-                    eprintln!("collab: {e}");
-                    std::process::exit(1);
-                }
-            }
-            Some("verify") => {
-                let dir = args.get(1).map(String::as_str).unwrap_or("");
-                match release::verify_dir(std::path::Path::new(dir)) {
-                    Ok(man) => {
-                        println!("verified: version {}, {} file(s), signed by the key this build trusts",
-                                 man.version, man.files.len());
+        "release" => {
+            match args.first().map(String::as_str) {
+                Some("keygen") => release::keygen(),
+                Some("sign") => {
+                    let version = take_flag(&mut args, "-version").unwrap_or_default();
+                    let notes = take_flag(&mut args, "-notes").unwrap_or_default();
+                    let key = take_flag(&mut args, "-key").unwrap_or_default();
+                    let dir = args.get(1).map(String::as_str).unwrap_or("");
+                    if dir.is_empty() || version.is_empty() || key.is_empty() {
+                        eprintln!("usage: collab release sign <dir> -version X.Y.Z -key <private> [-notes \"...\"]");
+                        std::process::exit(2);
                     }
-                    Err(e) => {
+                    if let Err(e) =
+                        release::sign_release(std::path::Path::new(dir), &version, &notes, &key)
+                    {
                         eprintln!("collab: {e}");
                         std::process::exit(1);
                     }
                 }
+                Some("verify") => {
+                    let dir = args.get(1).map(String::as_str).unwrap_or("");
+                    match release::verify_dir(std::path::Path::new(dir)) {
+                        Ok(man) => {
+                            println!("verified: version {}, {} file(s), signed by the key this build trusts",
+                                 man.version, man.files.len());
+                        }
+                        Err(e) => {
+                            eprintln!("collab: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("usage: collab release keygen");
+                    eprintln!("       collab release verify <dir>");
+                    eprintln!("       collab release sign <dir> -version X.Y.Z -key <private>");
+                    std::process::exit(2);
+                }
             }
-            _ => {
-                eprintln!("usage: collab release keygen");
-                eprintln!("       collab release verify <dir>");
-                eprintln!("       collab release sign <dir> -version X.Y.Z -key <private>");
-                std::process::exit(2);
-            }
-        },
+        }
         "setup" => setup::run(),
         "who" => {
             if take_switch(&mut args, "-json") {

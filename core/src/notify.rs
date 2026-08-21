@@ -9,9 +9,9 @@ use crate::config;
 use crate::msg::Msg;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::SyncSender;
 #[cfg(not(target_os = "macos"))]
 use std::sync::mpsc::{sync_channel, RecvTimeoutError};
-use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
 /// A machine waking from sleep is replayed everything it missed at once, and
@@ -58,7 +58,9 @@ fn ask_app(url: &str) -> std::io::Result<()> {
 
 #[cfg(target_os = "macos")]
 pub fn ensure_app_running() -> bool {
-    let Some(app) = find_notifier() else { return false };
+    let Some(app) = find_notifier() else {
+        return false;
+    };
     Command::new("open")
         .args(["-g", "-a"])
         .arg(&app)
@@ -108,40 +110,40 @@ impl Notifier {
         #[cfg(not(target_os = "macos"))]
         {
             let (tx, rx) = sync_channel::<Msg>(512);
-        std::thread::spawn(move || {
-            let mut pending: Vec<Msg> = Vec::new();
-            let mut warned = false;
-            loop {
-                let wait = if pending.is_empty() {
-                    Duration::from_secs(3600)
-                } else {
-                    QUIET
-                };
-                match rx.recv_timeout(wait) {
-                    Ok(m) => {
-                        // Your own words do not need announcing back to you —
-                        // but your own AI's do. A name belongs to a machine, so
-                        // without the second test this would also silence the
-                        // assistant sitting next to you.
-                        if m.via != crate::msg::ACTOR_AI
-                            && m.from.trim().eq_ignore_ascii_case(me.trim())
-                        {
-                            continue;
+            std::thread::spawn(move || {
+                let mut pending: Vec<Msg> = Vec::new();
+                let mut warned = false;
+                loop {
+                    let wait = if pending.is_empty() {
+                        Duration::from_secs(3600)
+                    } else {
+                        QUIET
+                    };
+                    match rx.recv_timeout(wait) {
+                        Ok(m) => {
+                            // Your own words do not need announcing back to you —
+                            // but your own AI's do. A name belongs to a machine, so
+                            // without the second test this would also silence the
+                            // assistant sitting next to you.
+                            if m.via != crate::msg::ACTOR_AI
+                                && m.from.trim().eq_ignore_ascii_case(me.trim())
+                            {
+                                continue;
+                            }
+                            // Addressed to somebody else: still delivered, not announced.
+                            if !m.is_for(&config::my_names()) {
+                                continue;
+                            }
+                            pending.push(m);
                         }
-                        // Addressed to somebody else: still delivered, not announced.
-                        if !m.is_for(&config::my_names()) {
-                            continue;
+                        Err(RecvTimeoutError::Timeout) => {
+                            flush(&helper, &pending, &mut warned);
+                            pending.clear();
                         }
-                        pending.push(m);
+                        Err(RecvTimeoutError::Disconnected) => return,
                     }
-                    Err(RecvTimeoutError::Timeout) => {
-                        flush(&helper, &pending, &mut warned);
-                        pending.clear();
-                    }
-                    Err(RecvTimeoutError::Disconnected) => return,
                 }
-            }
-        });
+            });
             Some(Notifier { tx })
         }
     }

@@ -57,10 +57,25 @@ fn set_seq_floor(n: i64) {
 }
 
 /// Removes a channel's messages. Returns how many went.
+/// The highest sequence number a channel has reached, or 0 for one that has
+/// never been spoken on.
+pub fn head(channel: &str) -> i64 {
+    read()
+        .iter()
+        .filter(|m| m.channel == channel)
+        .map(|m| m.seq)
+        .max()
+        .unwrap_or(0)
+}
+
 pub fn purge(channel: &str) -> usize {
     let all = read();
     let highest = all.iter().map(|m| m.seq).max().unwrap_or(0);
-    let keep: Vec<Msg> = all.iter().filter(|m| m.channel != channel).cloned().collect();
+    let keep: Vec<Msg> = all
+        .iter()
+        .filter(|m| m.channel != channel)
+        .cloned()
+        .collect();
     let removed = all.len() - keep.len();
     if removed == 0 {
         return 0;

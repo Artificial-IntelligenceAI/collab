@@ -47,6 +47,12 @@ pub struct Welcome {
     /// otherwise know, and needs to, to be told who can close the room.
     #[serde(default)]
     pub creator: String,
+    /// How far the channel had got when this connection opened. Everything at
+    /// or below it that arrives afterwards is backlog, everything above is
+    /// live. Without it the two are the same frame, and a two-hour-old
+    /// instruction is delivered looking exactly like one just given.
+    #[serde(default)]
+    pub head: i64,
 }
 
 /// What a file transfer announces before its bytes.
@@ -117,10 +123,24 @@ impl Conn {
             let Some(key) = B64.decode(ch.key.trim()).ok().filter(|k| k.len() == 32) else {
                 continue;
             };
-            let Some(sealer) = Sealer::new(&key, &challenge) else { continue };
-            let Ok(plain) = sealer.open(&line) else { continue };
-            let Ok(hello) = serde_json::from_slice::<Hello>(&plain) else { continue };
-            return Ok((Conn { reader, writer, sealer }, name, hello));
+            let Some(sealer) = Sealer::new(&key, &challenge) else {
+                continue;
+            };
+            let Ok(plain) = sealer.open(&line) else {
+                continue;
+            };
+            let Ok(hello) = serde_json::from_slice::<Hello>(&plain) else {
+                continue;
+            };
+            return Ok((
+                Conn {
+                    reader,
+                    writer,
+                    sealer,
+                },
+                name,
+                hello,
+            ));
         }
         Err(io::Error::other("no channel key opened that"))
     }
@@ -148,7 +168,11 @@ impl Conn {
             .map_err(|_| io::Error::other("bad challenge"))?;
         let sealer = Sealer::new(&key, &challenge)
             .ok_or_else(|| io::Error::other("that channel's key is the wrong length"))?;
-        Ok(Conn { reader, writer: stream, sealer })
+        Ok(Conn {
+            reader,
+            writer: stream,
+            sealer,
+        })
     }
 
     /// Waits for the far side to prove it holds the same key.

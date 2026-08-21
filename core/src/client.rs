@@ -75,8 +75,8 @@ fn stream_channel<F, S>(
     on_msg: &mut F,
     on_status: &mut S,
 ) where
-    F: FnMut(&Msg),
-    S: FnMut(bool, i64, Option<String>),
+    F: FnMut(&Msg, bool),
+    S: FnMut(bool, i64, i64, Option<String>),
 {
     use std::sync::atomic::Ordering::SeqCst;
     let mut announced = false;
@@ -87,14 +87,13 @@ fn stream_channel<F, S>(
         match dial(channel) {
             Err(e) => {
                 if !announced {
-                    on_status(false, since.load(SeqCst), Some(e.to_string()));
+                    on_status(false, since.load(SeqCst), 0, Some(e.to_string()));
                     announced = true;
                 }
                 std::thread::sleep(Duration::from_secs(2));
             }
             Ok(mut conn) => {
                 announced = false;
-                on_status(true, since.load(SeqCst), None);
                 let hello = Hello {
                     name: config::name(),
                     host: config::name(),
@@ -102,20 +101,29 @@ fn stream_channel<F, S>(
                     since: since.load(SeqCst),
                     mode: "watch".into(),
                 };
-                if let Err(e) = conn.send(&hello).and_then(|_| {
-                    conn.expect_welcome()
-                        .map(|w| channels::learn_creator(channel, &w.creator))
-                }) {
-                    on_status(false, since.load(SeqCst), Some(e.to_string()));
-                    std::thread::sleep(Duration::from_secs(2));
-                    continue;
-                }
+                let welcome = match conn.send(&hello).and_then(|_| conn.expect_welcome()) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        on_status(false, since.load(SeqCst), 0, Some(e.to_string()));
+                        std::thread::sleep(Duration::from_secs(2));
+                        continue;
+                    }
+                };
+                channels::learn_creator(channel, &welcome.creator);
+                // Where the channel stood before we arrived. A server too old
+                // to say sends 0, which marks nothing as backlog — the same
+                // behaviour as before, rather than a wrong claim about age.
+                let head = welcome.head;
+                on_status(true, since.load(SeqCst), head, None);
                 // A short read timeout is what lets a joined-channel change be
                 // noticed while the channel is quiet, without a poll loop.
                 conn.set_read_timeout(Some(Duration::from_secs(2)));
                 loop {
                     match conn.recv::<Msg>() {
-                        Ok(Some(m)) => on_msg(&m),
+                        Ok(Some(m)) => {
+                            let replayed = head > 0 && m.seq <= head;
+                            on_msg(&m, replayed);
+                        }
                         Ok(None) => break,
                         Err(e) if is_timeout(&e) => {
                             if !still_wanted() {
@@ -123,14 +131,14 @@ fn stream_channel<F, S>(
                             }
                         }
                         Err(e) => {
-                            on_status(false, since.load(SeqCst), Some(e.to_string()));
+                            on_status(false, since.load(SeqCst), 0, Some(e.to_string()));
                             announced = true;
                             break;
                         }
                     }
                 }
                 if !announced {
-                    on_status(false, since.load(SeqCst), None);
+                    on_status(false, since.load(SeqCst), 0, None);
                     announced = true;
                 }
                 std::thread::sleep(Duration::from_secs(2));
@@ -217,8 +225,11 @@ fn report_nothing_subscribed(as_json: bool, all: bool) {
         "this chat is not subscribed to any channel yet — call collab_subscribe"
     };
     if as_json {
-        println!("{}", serde_json::json!({"type":"status","connected":false,
-            "error":why,"addr":config::addr(),"from":0}));
+        println!(
+            "{}",
+            serde_json::json!({"type":"status","connected":false,
+            "error":why,"addr":config::addr(),"from":0})
+        );
         let _ = std::io::stdout().flush();
     } else {
         eprintln!("collab: {why}");
@@ -227,9 +238,12 @@ fn report_nothing_subscribed(as_json: bool, all: bool) {
 
 fn report_unknown(name: &str, as_json: bool) {
     if as_json {
-        println!("{}", serde_json::json!({"type":"status","connected":false,
+        println!(
+            "{}",
+            serde_json::json!({"type":"status","connected":false,
             "error":format!("no key for #{name} on this machine"),
-            "addr":config::addr(),"from":0}));
+            "addr":config::addr(),"from":0})
+        );
         let _ = std::io::stdout().flush();
     }
 }
@@ -245,12 +259,16 @@ fn watch_one(
 ) {
     let mut warned = false;
     let mut first = true;
-    let notifier = if popups { Notifier::new(config::name()) } else { None };
+    let notifier = if popups {
+        Notifier::new(config::name())
+    } else {
+        None
+    };
     let addr = config::addr();
     let host = config::name();
     let cursor = std::sync::atomic::AtomicI64::new(start);
 
-    let mut on_msg = |m: &Msg| {
+    let mut on_msg = |m: &Msg, replayed: bool| {
         use std::sync::atomic::Ordering::SeqCst;
         // A chat does not need its own words read back to it. Only this chat's
         // own are dropped — a sibling chat on the same machine is someone else,
@@ -280,23 +298,42 @@ fn watch_one(
             return;
         }
         if as_json {
-            if let Ok(s) = serde_json::to_string(&serde_json::json!({"type":"msg","msg":m})) {
+            if let Ok(s) = serde_json::to_string(
+                &serde_json::json!({"type":"msg","msg":m,"replayed":replayed}),
+            ) {
                 println!("{s}");
             }
+        } else if replayed {
+            println!("[{}] (earlier) {}: {}", m.channel, m.label(), m.line());
         } else {
             println!("[{}] {}: {}", m.channel, m.label(), m.line());
         }
         let _ = std::io::stdout().flush();
+        // Backlog is not news. Popping a notification for a message from two
+        // hours ago says it has just been said, and an instruction read that
+        // way gets acted on a second time.
         if let Some(n) = &notifier {
-            n.send(m);
+            if !replayed {
+                n.send(m);
+            }
         }
     };
 
-    let mut on_status = |up: bool, from: i64, err: Option<String>| {
+    let mut on_status = |up: bool, from: i64, head: i64, err: Option<String>| {
+        // How much of what is about to arrive is old, so a reader can tell
+        // before it starts rather than after. Null while disconnected: we are
+        // not talking to the server, so we do not know where the channel got
+        // to, and 0 would read as "caught up" at exactly the wrong moment.
+        let head = if up { Some(head) } else { None };
+        let behind = head.map(|h| if h > from { h - from } else { 0 });
         if as_json {
-            println!("{}", serde_json::json!({
-                "type":"status","connected":up,"from":from,"addr":addr,
-                "channel":channel,"error":err}));
+            println!(
+                "{}",
+                serde_json::json!({
+                "type":"status","connected":up,"from":from,"head":head,
+                "behind":behind,"addr":addr,
+                "channel":channel,"error":err})
+            );
             let _ = std::io::stdout().flush();
             return;
         }
@@ -321,6 +358,32 @@ fn watch_one(
 /// Delivers one message on $COLLAB_CHANNEL, under this machine's own name.
 pub fn send(m: Msg) -> std::io::Result<()> {
     send_full(&config::channel(), None, m)
+}
+
+/// Which channel a command was aimed at. Naming one this machine has no key for
+/// is refused here: posting it to the configured channel instead would deliver
+/// the message somewhere nobody asked for, and say it went fine.
+fn target_channel(explicit: Option<&str>) -> String {
+    match explicit.map(str::trim).filter(|s| !s.is_empty()) {
+        None => config::channel(),
+        Some(c) => {
+            let known = channels::names();
+            match known.iter().find(|k| k.eq_ignore_ascii_case(c)) {
+                Some(k) => k.clone(),
+                None => {
+                    eprintln!(
+                        "collab: no channel #{c} on this machine.\n  here: {}",
+                        if known.is_empty() {
+                            "none yet — make one in the Collab app".into()
+                        } else {
+                            known.join(", ")
+                        }
+                    );
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
 }
 
 /// The same, under a display name of your own. An AI session names itself, so
@@ -416,7 +479,11 @@ pub fn users_cmd(channel: Option<&str>, all: bool) {
             } else {
                 format!(" on {}", u.host)
             };
-            let at = if u.last_at.len() >= 16 { &u.last_at[11..16] } else { "--:--" };
+            let at = if u.last_at.len() >= 16 {
+                &u.last_at[11..16]
+            } else {
+                "--:--"
+            };
             println!(
                 "  @{:<16} {:<6}{:<12} {} message(s), last at {at}",
                 u.name, kind, where_from, u.messages
@@ -438,7 +505,10 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
     if wanted.is_empty() {
         return Ok(()); // the common case pays nothing
     }
-    let mut known: Vec<String> = config::my_names().iter().map(|n| n.to_lowercase()).collect();
+    let mut known: Vec<String> = config::my_names()
+        .iter()
+        .map(|n| n.to_lowercase())
+        .collect();
     for u in users_on(channel) {
         let n = u.name.to_lowercase();
         if !known.contains(&n) {
@@ -462,18 +532,23 @@ drop the @ if you did not mean to address anybody. To write *about* a name rathe
 put it in backticks or double the at-sign: `@name` or @@name. Somebody who has never posted \
 here cannot be mentioned yet.",
         missing.join(", "),
-        if missing.len() == 1 { "matches" } else { "match" },
+        if missing.len() == 1 {
+            "matches"
+        } else {
+            "match"
+        },
         listed.join(", ")
     ))
 }
 
-pub fn post(text: &str, via_ai: bool) {
+pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
+    let channel = target_channel(channel);
     let text = text.trim().replace('\n', " ");
     if text.is_empty() {
-        eprintln!("usage: collab post \"message\"");
+        eprintln!("usage: collab post [-c channel] \"message\"");
         std::process::exit(2);
     }
-    if let Err(e) = mentions_reach_someone(&config::channel(), &text) {
+    if let Err(e) = mentions_reach_someone(&channel, &text) {
         eprintln!("collab: {e}");
         std::process::exit(2);
     }
@@ -487,7 +562,7 @@ pub fn post(text: &str, via_ai: bool) {
         text,
         ..Default::default()
     };
-    if let Err(e) = send(m) {
+    if let Err(e) = send_full(&channel, None, m) {
         fail(e)
     }
 }
@@ -498,7 +573,8 @@ pub const CHANGE_USAGE: &str = "usage: collab change -action added|edited|remove
   -target   which script or instance, e.g. ServerScriptService/ShopHandler
   summary   one line, in past tense: \"gave the buy button a debounce\"";
 
-pub fn change(action: &str, target: &str, summary: &str, via_ai: bool) {
+pub fn change(action: &str, target: &str, summary: &str, via_ai: bool, channel: Option<&str>) {
+    let channel = target_channel(channel);
     let action = action.trim().to_lowercase();
     if !ACTIONS.contains(&action.as_str()) {
         eprintln!(
@@ -512,11 +588,7 @@ pub fn change(action: &str, target: &str, summary: &str, via_ai: bool) {
         eprintln!("{CHANGE_USAGE}");
         std::process::exit(2);
     }
-    if let Err(e) = mentions_reach_someone(&config::channel(), &summary) {
-        eprintln!("collab: {e}");
-        std::process::exit(2);
-    }
-    if let Err(e) = mentions_reach_someone(&config::channel(), &summary) {
+    if let Err(e) = mentions_reach_someone(&channel, &summary) {
         eprintln!("collab: {e}");
         std::process::exit(2);
     }
@@ -552,7 +624,9 @@ pub fn fetch(channel: &str, since: i64) -> Vec<Msg> {
         return all;
     }
     let local = || history::filter(history::read(), channel, since);
-    let Ok(mut conn) = dial(channel) else { return local() };
+    let Ok(mut conn) = dial(channel) else {
+        return local();
+    };
     let hello = Hello {
         name: config::name(),
         host: config::name(),
@@ -632,7 +706,11 @@ pub fn send_file(path: &str, caption: &str, channel: &str, via_ai: bool) -> Resu
     conn.send(&crate::wire::FileHeader {
         file: want.clone(),
         caption: caption.to_string(),
-        via: if via_ai { crate::msg::ACTOR_AI.into() } else { String::new() },
+        via: if via_ai {
+            crate::msg::ACTOR_AI.into()
+        } else {
+            String::new()
+        },
     })
     .map_err(|e| e.to_string())?;
     for chunk in data.chunks(files::CHUNK) {
@@ -649,7 +727,12 @@ pub fn send_file(path: &str, caption: &str, channel: &str, via_ai: bool) -> Resu
 
 /// Fetches a file by hash and writes it somewhere safe. The name came from
 /// whoever sent it, so it is cleaned before it is ever used as a path.
-pub fn get_file(hash: &str, name: &str, dir: &std::path::Path, channel: &str) -> Result<std::path::PathBuf, String> {
+pub fn get_file(
+    hash: &str,
+    name: &str,
+    dir: &std::path::Path,
+    channel: &str,
+) -> Result<std::path::PathBuf, String> {
     let mut conn = dial(channel).map_err(|e| e.to_string())?;
     conn.send(&Hello {
         name: config::name(),
@@ -660,8 +743,10 @@ pub fn get_file(hash: &str, name: &str, dir: &std::path::Path, channel: &str) ->
     })
     .and_then(|_| conn.expect_welcome().map(|_| ()))
     .map_err(|e| e.to_string())?;
-    conn.send(&crate::wire::Want { hash: hash.to_string() })
-        .map_err(|e| e.to_string())?;
+    conn.send(&crate::wire::Want {
+        hash: hash.to_string(),
+    })
+    .map_err(|e| e.to_string())?;
 
     match conn.recv::<crate::wire::Ack>() {
         Ok(Some(a)) if a.ok => {}
@@ -692,7 +777,10 @@ pub fn default_incoming() -> std::path::PathBuf {
 
 /// Every file on a channel, newest last.
 pub fn files_on(channel: &str) -> Vec<Msg> {
-    fetch(channel, 0).into_iter().filter(|m| m.is_file()).collect()
+    fetch(channel, 0)
+        .into_iter()
+        .filter(|m| m.is_file())
+        .collect()
 }
 
 pub fn send_file_cmd(path: &str, caption: &str, channel: Option<&str>) {
@@ -715,8 +803,13 @@ pub fn files_cmd(channel: Option<&str>) {
     }
     for m in list {
         if let Some(f) = &m.file {
-            println!("{:<10} {:<9} {}  ({})", &f.hash[..8.min(f.hash.len())],
-                     files::human(f.size), f.name, m.label());
+            println!(
+                "{:<10} {:<9} {}  ({})",
+                &f.hash[..8.min(f.hash.len())],
+                files::human(f.size),
+                f.name,
+                m.label()
+            );
         }
     }
 }
@@ -725,7 +818,9 @@ pub fn get_file_cmd(which: &str, out: Option<&str>, channel: Option<&str>) {
     let ch = channel.map(channels::tidy).unwrap_or_else(config::channel);
     let list = files_on(&ch);
     let found = list.iter().rev().find(|m| {
-        m.file.as_ref().is_some_and(|f| f.hash == which || f.hash.starts_with(which) || f.name == which)
+        m.file
+            .as_ref()
+            .is_some_and(|f| f.hash == which || f.hash.starts_with(which) || f.name == which)
     });
     let Some(f) = found.and_then(|m| m.file.clone()) else {
         eprintln!("collab: no file matching \"{which}\" on #{ch}");
@@ -826,7 +921,10 @@ pub fn channel_delete(name: &str) {
         since: 0,
         mode: "delete".into(),
     };
-    if let Err(e) = conn.send(&hello).and_then(|_| conn.expect_welcome().map(|_| ())) {
+    if let Err(e) = conn
+        .send(&hello)
+        .and_then(|_| conn.expect_welcome().map(|_| ()))
+    {
         eprintln!("collab: {e}");
         std::process::exit(1);
     }
@@ -834,7 +932,9 @@ pub fn channel_delete(name: &str) {
         Ok(Some(a)) if a.ok => {
             let _ = channels::forget(&name);
             println!("{}", a.detail);
-            println!("the key is gone from here; anyone else still holding it can no longer connect");
+            println!(
+                "the key is gone from here; anyone else still holding it can no longer connect"
+            );
         }
         Ok(Some(a)) => {
             eprintln!("collab: {}", a.detail);

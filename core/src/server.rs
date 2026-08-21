@@ -1,8 +1,8 @@
 //! The server. One machine runs it; everyone else dials in.
 use crate::config;
+use crate::files;
 use crate::history;
 use crate::msg::{self, Msg, ACTOR_AI, KIND_CHANGE, KIND_CHAT};
-use crate::files;
 use crate::wire::{Ack, Conn, FileHeader, Want, Welcome};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -120,6 +120,7 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
             ok: true,
             server: config::hostname(),
             creator,
+            head: crate::history::head(&hello.channel),
         })
         .is_err()
     {
@@ -132,7 +133,9 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
         // accepts whatever it is handed is not content-addressed, it is just a
         // directory with confusing names.
         "put" => {
-            let Ok(Some(hdr)) = conn.recv::<FileHeader>() else { return };
+            let Ok(Some(hdr)) = conn.recv::<FileHeader>() else {
+                return;
+            };
             if hdr.file.size > files::MAX_BYTES {
                 let _ = conn.send(&Ack {
                     ok: false,
@@ -147,7 +150,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                     Ok(Some(chunk)) => {
                         data.extend_from_slice(&chunk);
                         if data.len() as u64 > files::MAX_BYTES {
-                            let _ = conn.send(&Ack { ok: false, detail: "too big".into() });
+                            let _ = conn.send(&Ack {
+                                ok: false,
+                                detail: "too big".into(),
+                            });
                             return;
                         }
                     }
@@ -163,7 +169,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 return;
             }
             if files::save_blob(&hello.channel, &hash, &data).is_err() {
-                let _ = conn.send(&Ack { ok: false, detail: "could not store it".into() });
+                let _ = conn.send(&Ack {
+                    ok: false,
+                    detail: "could not store it".into(),
+                });
                 return;
             }
             let name = files::safe_component(&hdr.file.name);
@@ -173,10 +182,18 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 host: hello.host.clone(),
                 at: msg::now(),
                 kind: crate::msg::KIND_FILE.into(),
-                via: if hdr.via == ACTOR_AI { ACTOR_AI.into() } else { String::new() },
+                via: if hdr.via == ACTOR_AI {
+                    ACTOR_AI.into()
+                } else {
+                    String::new()
+                },
                 text: hdr.caption.replace('\n', " "),
                 to: msg::mentions_in(&hdr.caption),
-                file: Some(files::FileRef { name: name.clone(), size: hdr.file.size, hash: hash.clone() }),
+                file: Some(files::FileRef {
+                    name: name.clone(),
+                    size: hdr.file.size,
+                    hash: hash.clone(),
+                }),
                 ..Default::default()
             });
             let _ = conn.send(&Ack {
@@ -187,7 +204,9 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
 
         // Handing a file back out, to somebody who already holds the channel key.
         "get" => {
-            let Ok(Some(want)) = conn.recv::<Want>() else { return };
+            let Ok(Some(want)) = conn.recv::<Want>() else {
+                return;
+            };
             match files::read_blob(&hello.channel, &want.hash) {
                 None => {
                     let _ = conn.send(&Ack {
@@ -197,7 +216,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 }
                 Some(data) => {
                     if conn
-                        .send(&Ack { ok: true, detail: data.len().to_string() })
+                        .send(&Ack {
+                            ok: true,
+                            detail: data.len().to_string(),
+                        })
                         .is_err()
                     {
                         return;
@@ -219,7 +241,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
             let ch = crate::channels::get(&hello.channel);
             let creator = ch.as_ref().map(|c| c.creator_name()).unwrap_or_default();
             let ack = if creator.is_empty() {
-                Ack { ok: false, detail: format!("#{} records no creator", hello.channel) }
+                Ack {
+                    ok: false,
+                    detail: format!("#{} records no creator", hello.channel),
+                }
             } else if creator != hello.host {
                 Ack {
                     ok: false,
@@ -232,7 +257,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 let gone = history::purge(&hello.channel);
                 files::forget_channel(&hello.channel); // its files go with it
                 let _ = crate::channels::forget(&hello.channel);
-                println!("deleted #{} ({gone} messages) at {}'s request", hello.channel, hello.host);
+                println!(
+                    "deleted #{} ({gone} messages) at {}'s request",
+                    hello.channel, hello.host
+                );
                 Ack {
                     ok: true,
                     detail: format!("deleted #{}, {gone} message(s) removed", hello.channel),
