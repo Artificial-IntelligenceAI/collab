@@ -2,6 +2,7 @@
 // An AI cannot make one, because a key that has not been carried to the other
 // machine is a room with nobody in it.
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -77,6 +78,21 @@ namespace Collab
                                           Foreground = Sol.FgDim, TextWrapping = TextWrapping.Wrap,
                                           Margin = new Thickness(0, 3, 0, 0) };
 
+            var youAre = new TextBlock
+            {
+                Text = "you are “" + (Core.DisplayOn(name) ?? Core.MachineName) + "” here",
+                FontSize = 11, Foreground = Sol.FgDim, Margin = new Thickness(0, 4, 0, 0),
+            };
+
+            var rename = new Button { Content = "Change name", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
+            rename.Click += (_, _) =>
+            {
+                var chosen = NamePrompt.Ask(this, name, Core.DisplayOn(name) ?? Core.MachineName);
+                if (chosen == null) return;
+                Core.Run($"channel name \"{name}\" \"{chosen}\"");
+                Reload();
+            };
+
             var copy = new Button { Content = "Copy invite", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
             copy.Click += (_, _) => { try { Clipboard.SetText(invite); copy.Content = "Copied"; } catch { } };
 
@@ -92,10 +108,11 @@ namespace Collab
             };
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-            buttons.Children.Add(copy); buttons.Children.Add(drop);
+            buttons.Children.Add(rename); buttons.Children.Add(copy); buttons.Children.Add(drop);
 
             var body = new StackPanel();
-            body.Children.Add(head); body.Children.Add(keyLine); body.Children.Add(buttons);
+            body.Children.Add(head); body.Children.Add(youAre);
+            body.Children.Add(keyLine); body.Children.Add(buttons);
 
             return new Border
             {
@@ -111,6 +128,7 @@ namespace Collab
             if (name.Length == 0) return;
             var outp = Core.Run($"channel create \"{name}\"").Trim();
             NewName.Text = "";
+            if (!outp.StartsWith("collab:")) AskName(name);
             Note.Text = outp.Split('\n')[0];
             Note.Foreground = outp.StartsWith("collab:") ? Sol.Red : Sol.Green;
             Reload();
@@ -125,8 +143,25 @@ namespace Collab
             var outp = Core.Run($"channel add \"{invite}\"").Trim();
             Note.Text = outp.Split('\n')[0];
             Note.Foreground = outp.StartsWith("collab:") ? Sol.Red : Sol.Green;
-            if (!outp.StartsWith("collab:")) JoinKey.Text = "";
+            if (!outp.StartsWith("collab:"))
+            {
+                JoinKey.Text = "";
+                // The name of the channel just joined is the first word of what
+                // the CLI printed: `joined #roblox-game — …`
+                var joined = outp.Split(' ').FirstOrDefault(w => w.StartsWith("#"))?.TrimStart('#');
+                if (!string.IsNullOrEmpty(joined)) AskName(joined);
+            }
             Reload();
+        }
+
+        /// Asked when a channel first appears, because that is the moment a
+        /// person knows who they are talking to. Skipping it leaves the machine
+        /// name, which is whatever the computer was called in a shop.
+        void AskName(string channel)
+        {
+            var chosen = NamePrompt.Ask(this, channel, Core.MachineName);
+            if (!string.IsNullOrWhiteSpace(chosen))
+                Core.Run($"channel name \"{channel}\" \"{chosen}\"");
         }
 
         void OnDone(object s, RoutedEventArgs e) => Close();

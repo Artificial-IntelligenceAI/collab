@@ -34,6 +34,12 @@ pub struct Channel {
     /// server needs a name it can check against whoever is asking to delete.
     #[serde(default)]
     pub creator: String,
+    /// What to call yourself in this channel. A person is one name to their
+    /// family and another to a work project, and the machine's name is nobody's
+    /// choice at all — it is whatever the computer was called in a shop. Empty
+    /// means fall back to the machine name.
+    #[serde(default)]
+    pub display: String,
 }
 
 impl Channel {
@@ -100,6 +106,41 @@ pub fn tidy(name: &str) -> String {
 /// paste-one-thing and both machines end up calling the room the same name —
 /// the way joining a group chat works. `:` is the separator because a channel
 /// name cannot contain one (tidy strips it) and base64 never produces one.
+/// What this machine calls itself on one channel, or nothing if it has not been
+/// asked yet.
+pub fn display_for(channel: &str) -> Option<String> {
+    load()
+        .get(&tidy(channel))
+        .map(|c| c.display.trim().to_string())
+        .filter(|d| !d.is_empty())
+}
+
+/// Sets it. An empty string clears it, which puts the machine name back.
+pub fn set_display(channel: &str, display: &str) -> Result<(), String> {
+    let ch = tidy(channel);
+    let mut reg = load();
+    let Some(entry) = reg.get_mut(&ch) else {
+        return Err(format!("no channel #{ch} on this machine"));
+    };
+    entry.display = crate::config::tidy_name(display);
+    save(&reg).map_err(|e| e.to_string())
+}
+
+/// Every name this machine answers to on a channel: the one chosen for it, and
+/// the machine name, which stays valid because it is what the other side sees
+/// before a choice is made.
+pub fn names_on(channel: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(d) = display_for(channel) {
+        out.push(d);
+    }
+    let machine = crate::config::name();
+    if !out.iter().any(|n| n.eq_ignore_ascii_case(&machine)) {
+        out.push(machine);
+    }
+    out
+}
+
 pub fn invite(name: &str, key: &str) -> String {
     format!("{name}:{key}")
 }
@@ -132,6 +173,7 @@ pub fn create(name: &str) -> Result<(String, String), String> {
             created: crate::msg::now(),
             mine: true,
             creator: config::name(),
+            display: String::new(),
         },
     );
     save(&reg).map_err(|e| e.to_string())?;
@@ -168,6 +210,7 @@ pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
             created: crate::msg::now(),
             mine: false,
             creator: creator.trim().to_string(),
+            display: String::new(),
         },
     );
     save(&reg).map_err(|e| e.to_string())?;

@@ -94,6 +94,30 @@ pub fn name() -> String {
 /// that "@tankun" means the person, not whichever of their sessions happens to
 /// be listening. Anything without a chat name is the person, and answers to the
 /// machine name.
+/// A display name is a person's to choose, but it still has to be one word the
+/// mention parser can find, so it is tidied the same way a channel name is.
+pub fn tidy_name(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(24)
+        .collect()
+}
+
+/// Every name this chat answers to on a given channel. A chat that has named
+/// itself answers to that; a person answers to whatever they chose on that
+/// channel, and to the machine name either way.
+pub fn my_names_on(channel: &str) -> Vec<String> {
+    match session_name() {
+        Some(n) => vec![n],
+        None => crate::channels::names_on(channel),
+    }
+}
+
 pub fn my_names() -> Vec<String> {
     match session_name() {
         Some(n) => vec![n],

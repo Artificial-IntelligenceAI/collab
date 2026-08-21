@@ -14,6 +14,9 @@ struct ChannelInfo: Codable, Identifiable, Hashable {
     /// name and key in one string. This is the thing you send someone: they
     /// paste it and are in, under the same name, without choosing one.
     var invite: String?
+    /// What this machine calls itself on this channel. Empty means the machine
+    /// name, which is nobody's choice.
+    var display: String?
     var mine: Bool
     var created: String
     var creator: String
@@ -81,6 +84,12 @@ final class ChannelStore: ObservableObject {
         catch { self.error = "\(error)"; return false }
     }
 
+    func setDisplay(_ channel: String, to display: String) {
+        error = nil
+        do { _ = try collab(["channel", "name", channel, display]); reload() }
+        catch { self.error = "\(error)" }
+    }
+
     func add(name: String, key: String) -> Bool {
         do {
             _ = try collab(["channel", "add", name, key])
@@ -127,6 +136,10 @@ struct ChannelsView: View {
     @State private var justMade: (name: String, key: String)?
     @State private var copied: String?
     @State private var confirming: ChannelInfo?
+    /// The channel whose name is being chosen, and the name being typed.
+    @State private var naming: ChannelInfo?
+    @State private var draftName = ""
+    private var machineName: String { core.me }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -173,6 +186,7 @@ struct ChannelsView: View {
             Text("Its messages are deleted from the server and its key is dropped here. "
                  + "Anyone still holding the key will no longer be able to connect. This cannot be undone.")
         }
+        .sheet(item: $naming) { _ in namingSheet }
     }
 
     private func row(_ c: ChannelInfo) -> some View {
@@ -182,6 +196,8 @@ struct ChannelsView: View {
                 Text(c.mine ? "made here" : "joined")
                     .font(.system(size: 10)).foregroundStyle(Sol.fgDim)
                 Spacer()
+                Button("Change name") { naming = c; draftName = c.display ?? machineName }
+                    .buttonStyle(.borderless).font(.system(size: 11))
                 Button(copied == c.name ? "Copied" : "Copy invite") { copy(c.invite ?? c.key, tag: c.name) }
                     .buttonStyle(.borderless).font(.system(size: 11))
                 // Made here: closing it is real, and irreversible, so it asks.
@@ -197,6 +213,8 @@ struct ChannelsView: View {
                         .help("Drops your key. Only \(c.creator.isEmpty ? "whoever made it" : c.creator) can delete it")
                 }
             }
+            Text("you are “\(c.display?.isEmpty == false ? c.display! : machineName)” here")
+                .font(.system(size: 11)).foregroundStyle(Sol.fgDim)
             Text(c.invite ?? c.key)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Sol.fgDim).textSelection(.enabled).lineLimit(1)
@@ -206,7 +224,45 @@ struct ChannelsView: View {
     private func join() {
         let invite = addKey.trimmingCharacters(in: .whitespaces)
         guard !invite.isEmpty else { return }
-        if store.join(invite: invite) { addKey = ""; onChange() }
+        if store.join(invite: invite) {
+            addKey = ""
+            onChange()
+            // Ask straight away: joining is the moment a person knows who they
+            // are about to be talking to.
+            if let fresh = store.channels.first(where: { $0.display?.isEmpty != false && !$0.mine }) {
+                naming = fresh; draftName = machineName
+            }
+        }
+    }
+
+    /// One question, and Skip leaves the machine name in place.
+    private var namingSheet: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What should people call you on #\(naming?.name ?? "")?")
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Sol.fgEm)
+            TextField("", text: $draftName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commitName)
+            Text("This is the name the other machine sees, and the one they can @ you by. "
+                 + "It applies to this channel only.")
+                .font(.system(size: 11)).foregroundStyle(Sol.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Skip") { naming = nil }
+                Button("Use this name", action: commitName)
+                    .buttonStyle(.borderedProminent).tint(Sol.blue)
+                    .disabled(draftName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(18).frame(width: 400)
+    }
+
+    private func commitName() {
+        guard let c = naming else { return }
+        store.setDisplay(c.name, to: draftName.trimmingCharacters(in: .whitespaces))
+        naming = nil
+        onChange()
     }
 
     private var maker: some View {
@@ -280,9 +336,13 @@ struct ChannelsView: View {
     private func make() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, let key = store.create(name) else { return }
-        justMade = (store.channels.last(where: { $0.key == key })?.name ?? name, key)
+        let made = store.channels.last(where: { $0.key == key })?.name ?? name
+        justMade = (made, key)
         newName = ""
         onChange()
+        if let fresh = store.channels.first(where: { $0.name == made }) {
+            naming = fresh; draftName = machineName
+        }
     }
 
     private func copy(_ s: String, tag: String) {

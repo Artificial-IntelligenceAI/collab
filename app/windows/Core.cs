@@ -252,6 +252,35 @@ namespace Collab
         /// sent rather than mangled.
         static string Q(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
+        /// This machine's own name, and what it calls itself on one channel.
+        public static string MachineName
+        {
+            get
+            {
+                try
+                {
+                    var j = JsonDocument.Parse(Run("who -json")).RootElement;
+                    return j.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                }
+                catch { return ""; }
+            }
+        }
+
+        public static string? DisplayOn(string channel)
+        {
+            try
+            {
+                foreach (var c in JsonDocument.Parse(Run("channels -json")).RootElement.EnumerateArray())
+                {
+                    if (!c.TryGetProperty("name", out var n) || n.GetString() != channel) continue;
+                    var d = c.TryGetProperty("display", out var v) ? v.GetString() : null;
+                    return string.IsNullOrWhiteSpace(d) ? null : d;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         public string Post(string channel, string text) =>
             Run($"post -c {Q(channel)} {Q(text)}");
 

@@ -297,7 +297,7 @@ fn watch_one(
         // built from it, and a window that hides messages addressed to other
         // people is not a record of the channel. An @name narrows who is told,
         // never who may look, and dropping it here broke exactly that.
-        let addressed_elsewhere = !all && !m.is_for(&config::my_names());
+        let addressed_elsewhere = !all && !m.is_for(&config::my_names_on(&m.channel));
 
         // Deliver first; write down the place afterwards. The other order
         // loses messages outright: emit() exits when the reader has gone, so
@@ -377,7 +377,8 @@ fn watch_one(
 
 /// Delivers one message on $COLLAB_CHANNEL, under this machine's own name.
 pub fn send(m: Msg) -> std::io::Result<()> {
-    send_full(&config::channel(), None, m)
+    let ch = config::channel();
+    send_full(&ch, channels::display_for(&ch).as_deref(), m)
 }
 
 /// Which channel a command was aimed at. Naming one this machine has no key for
@@ -525,7 +526,7 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
     if wanted.is_empty() {
         return Ok(()); // the common case pays nothing
     }
-    let mut known: Vec<String> = config::my_names()
+    let mut known: Vec<String> = config::my_names_on(channel)
         .iter()
         .map(|n| n.to_lowercase())
         .collect();
@@ -582,7 +583,7 @@ pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
         text,
         ..Default::default()
     };
-    if let Err(e) = send_full(&channel, None, m) {
+    if let Err(e) = send_full(&channel, channels::display_for(&channel).as_deref(), m) {
         fail(e)
     }
 }
@@ -912,6 +913,7 @@ pub fn channels_cmd(show_keys: bool, as_json: bool) {
             .map(|(name, ch)| {
                 let mut o = serde_json::json!({"name": name, "mine": ch.mine,
                                    "created": ch.created, "creator": ch.creator_name()});
+                o["display"] = serde_json::json!(ch.display);
                 if show_keys {
                     o["key"] = serde_json::json!(ch.key);
                     o["invite"] = serde_json::json!(channels::invite(name, &ch.key));
@@ -981,6 +983,32 @@ pub fn channel_add(first: &str, second: &str) {
     };
     match channels::add(&name, &key, "") {
         Ok(n) => println!("joined #{n} — it will work once the other machine is reachable"),
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// What to call yourself on one channel. The machine name is nobody's choice —
+/// it is whatever the computer was called when it was set up — and the same
+/// person is reasonably a different name to their family and to a work project.
+pub fn channel_name(channel: &str, display: &str) {
+    if channel.is_empty() {
+        eprintln!("usage: collab channel name <channel> <what to call yourself>");
+        std::process::exit(2);
+    }
+    match channels::set_display(channel, display) {
+        Ok(()) => {
+            let ch = channels::tidy(channel);
+            match channels::display_for(&ch) {
+                Some(d) => println!("you are \"{d}\" on #{ch}"),
+                None => println!(
+                    "cleared — you are \"{}\" on #{ch} again, which is this machine's name",
+                    config::name()
+                ),
+            }
+        }
         Err(e) => {
             eprintln!("collab: {e}");
             std::process::exit(2);
