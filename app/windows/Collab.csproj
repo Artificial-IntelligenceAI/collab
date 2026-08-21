@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Collab</AssemblyName>
+    <RootNamespace>Collab</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Cross-building a Windows app from the Mac. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- WPF ships five native DLLs beside the exe. Without this they stay
+         loose, and copying just the exe gives a DllNotFoundException deep
+         inside WindowsBase with no hint that a file is missing. Bundling them
+         makes the app one file that cannot be half-copied. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- WPF refuses trimming (NETSDK1168), so AOT is not on the table here.
+         The size is paid back by this app replacing collab-notify.exe: one
+         program that shows the window and raises the toasts, the way the Mac
+         app does, rather than two that each carry a runtime. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- Must stay false for WPF: the text caret asks for the current input
+         language, and in invariant mode that throws CultureNotFoundException
+         the instant the composer takes focus. Copied from the notifier's
+         project, where it is harmless because a console app never draws one. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+</Project>

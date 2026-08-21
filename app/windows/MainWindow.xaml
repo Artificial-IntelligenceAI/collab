@@ -1,0 +1,70 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Collab.MainWindow"
+        Title="collab" Height="640" Width="1000" MinHeight="420" MinWidth="720"
+        WindowStartupLocation="CenterScreen">
+  <Grid x:Name="Root">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- header: view tabs, channel picker, connection state -->
+    <Grid x:Name="Header" Grid.Row="0" Margin="12,10,12,10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" Grid.Column="0">
+        <Button x:Name="TabChat" Content="Chat" Click="OnChat" Padding="14,5" Margin="0,0,6,0"/>
+        <Button x:Name="TabChanges" Content="Changes" Click="OnChanges" Padding="14,5"/>
+      </StackPanel>
+      <ComboBox x:Name="ChannelPicker" Grid.Column="2" MinWidth="160"
+                SelectionChanged="OnChannel" Margin="0,0,10,0"/>
+      <StackPanel Orientation="Horizontal" Grid.Column="3" VerticalAlignment="Center">
+        <Ellipse x:Name="Dot" Width="8" Height="8" Margin="0,0,6,0"/>
+        <TextBlock x:Name="ServerLabel" VerticalAlignment="Center" FontSize="12"/>
+      </StackPanel>
+    </Grid>
+
+    <!-- the conversation -->
+    <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                  Padding="12,0,12,0">
+      <ItemsControl x:Name="List">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Grid Margin="0,3,0,3">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="46"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding HHMM}" Foreground="{Binding DimBrush}"
+                         FontSize="12" VerticalAlignment="Top" Margin="0,2,8,0"/>
+              <TextBlock Text="{Binding Who}" Foreground="{Binding NameBrush}"
+                         FontWeight="SemiBold" Grid.Column="1" VerticalAlignment="Top"
+                         Margin="0,0,8,0"/>
+              <TextBlock Text="{Binding Line}" Foreground="{Binding TextBrush}"
+                         Grid.Column="2" TextWrapping="Wrap"/>
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+    <!-- composer -->
+    <Grid x:Name="Composer" Grid.Row="2" Margin="12,8,12,12">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <TextBox x:Name="Entry" Grid.Column="0" Padding="8,6" KeyDown="OnKey"
+               BorderThickness="1" FontSize="13"/>
+      <Button x:Name="SendBtn" Grid.Column="1" Content="Send" Click="OnSend"
+              Padding="18,6" Margin="8,0,0,0" FontWeight="SemiBold"/>
+    </Grid>
+  </Grid>
+</Window>

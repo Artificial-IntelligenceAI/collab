@@ -43,7 +43,11 @@ final class ChannelStore: ObservableObject {
 
     func reload() {
         do {
-            let json = try collab(["channels", "-json"])
+            // -keys is explicit now: the JSON form withholds them unless asked,
+            // so that a log or a screenshot of a channel list is not a list of
+            // secrets. This panel is the one caller that legitimately needs
+            // them — it exists to show a key to a person so they can send it.
+            let json = try collab(["channels", "-json", "-keys"])
             channels = (try? JSONDecoder().decode([ChannelInfo].self,
                                                   from: Data(json.utf8))) ?? []
             error = nil

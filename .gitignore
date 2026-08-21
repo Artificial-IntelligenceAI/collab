@@ -10,11 +10,19 @@ dist.noindex/
 app/mac/collab.icns
 notify/windows/collab.png
 
-# C# build leftovers
-notify/windows/bin/
-notify/windows/obj/
-notify/windows/out/
+# C# build leftovers. Matched anywhere rather than per-project: app/windows
+# was added later, its 149 MB publish output went straight into a commit, and
+# GitHub refused the push. A rule that has to be extended for every new project
+# is a rule that will be forgotten again.
+**/bin/
+**/obj/
+**/out/
 release.noindex/
+
+# Screenshots taken while debugging. Two of these reached the public repo by
+# way of `git add -A`, showing a real conversation and a desktop. Nothing
+# referenced them; they were never meant to be committed.
+.shots/
 
 # the original brief; it describes real people
 v2-prompt.md
