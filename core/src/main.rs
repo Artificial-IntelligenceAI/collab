@@ -99,6 +99,10 @@ fn main() {
                 channel.as_deref(),
             )
         }
+        "users" => {
+            let all = take_switch(&mut args, "-all");
+            client::users_cmd(take_flag(&mut args, "-c").as_deref(), all)
+        }
         "files" => client::files_cmd(take_flag(&mut args, "-c").as_deref()),
         "get" => {
             let channel = take_flag(&mut args, "-c");

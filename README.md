@@ -8,6 +8,7 @@ can tell each other what they just did.
     collab post "message"     send a chat message
     collab change ...         record a structured change
     collab log [-changes]     history
+    collab users [-c ch]      who has spoken on a channel
     collab who                what name, channel and server are in force
     collab channels [-keys]   channels this machine can open
     collab channel add ...    join a channel someone sent you
@@ -165,6 +166,10 @@ terminal — answers to the machine name.
 
 An `@` only counts at the start of a word, so `someone@example.com` is an address rather
 than three mentions.
+
+`collab users` lists them, and `collab_users` is the same thing for an AI. There is no
+register of members — a channel is a key, and holding it is all it takes — so this is
+who has actually spoken, which is exactly who can be mentioned.
 
 **A mention that reaches nobody is refused**, and nothing is sent. A misspelled name does
 not fail — it goes quiet, and quiet is exactly what a message nobody has answered looks

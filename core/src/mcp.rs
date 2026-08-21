@@ -81,6 +81,15 @@ and a channel if you are listening to more than one.",
           "required":["path","caption"]}
       },
       {
+        "name": "collab_users",
+        "description": "Who is on a channel — the names you can address with @name, whether each is \
+a person or an AI, which machine they spoke from, and when they were last heard. There is no \
+register of members: a channel is a key and holding it is all it takes, so this is who has \
+actually spoken. Somebody set up but silent will not appear, and cannot be mentioned yet.",
+        "inputSchema": {"type":"object","properties":{
+            "channel": {"type":"string","description":"One channel. Omit for everything you are listening to."}}}
+      },
+      {
         "name": "collab_files",
         "description": "List the files that have been sent on a channel, oldest first, with their \
 sizes and who sent them. The bytes are not fetched by this — use collab_get_file for that.",
@@ -474,6 +483,33 @@ you subscribe again."
                 Ok(detail) => text(format!("{detail} to #{to}")),
                 Err(e) => text(format!("not sent — {e}")),
             }
+        }
+        "collab_users" => {
+            let mut out = String::new();
+            for ch in read_scope(req) {
+                let users = client::users_on(&ch);
+                out.push_str(&format!("#{ch}\n"));
+                if users.is_empty() {
+                    out.push_str("  nobody has spoken here yet\n");
+                    continue;
+                }
+                for u in users {
+                    let at = if u.last_at.len() >= 16 { &u.last_at[11..16] } else { "--:--" };
+                    let host = if u.host.is_empty() || u.host == u.name {
+                        String::new()
+                    } else {
+                        format!(" on {}", u.host)
+                    };
+                    out.push_str(&format!(
+                        "  @{} — {}{}, {} message(s), last at {at}\n",
+                        u.name,
+                        if u.is_ai { "AI" } else { "Human" },
+                        host,
+                        u.messages
+                    ));
+                }
+            }
+            text(out)
         }
         "collab_files" => {
             let mut out = String::new();

@@ -348,6 +348,76 @@ fn fail(e: std::io::Error) -> ! {
     std::process::exit(1)
 }
 
+/// Somebody who has spoken on a channel, and is therefore mentionable.
+pub struct User {
+    pub name: String,
+    pub is_ai: bool,
+    /// The machine they spoke from, when the name does not already say.
+    pub host: String,
+    pub messages: usize,
+    pub last_at: String,
+}
+
+/// Who is on a channel. There is no register of members — a channel is a key,
+/// and holding it is all it takes — so this is who has actually spoken, which
+/// is also exactly who can be mentioned.
+pub fn users_on(channel: &str) -> Vec<User> {
+    let mut out: Vec<User> = Vec::new();
+    for m in fetch(channel, 0) {
+        if m.from.is_empty() {
+            continue;
+        }
+        match out.iter_mut().find(|u| u.name == m.from) {
+            Some(u) => {
+                u.messages += 1;
+                u.last_at = m.at.clone();
+                u.is_ai = m.via == crate::msg::ACTOR_AI;
+                if !m.host.is_empty() {
+                    u.host = m.host.clone();
+                }
+            }
+            None => out.push(User {
+                name: m.from.clone(),
+                is_ai: m.via == crate::msg::ACTOR_AI,
+                host: m.host.clone(),
+                messages: 1,
+                last_at: m.at.clone(),
+            }),
+        }
+    }
+    out.sort_by(|a, b| b.last_at.cmp(&a.last_at)); // most recently heard from first
+    out
+}
+
+pub fn users_cmd(channel: Option<&str>, all: bool) {
+    let channels = if all {
+        channels::names()
+    } else {
+        vec![channel.map(channels::tidy).unwrap_or_else(config::channel)]
+    };
+    for ch in channels {
+        let users = users_on(&ch);
+        println!("#{ch}");
+        if users.is_empty() {
+            println!("  nobody has spoken here yet");
+            continue;
+        }
+        for u in users {
+            let kind = if u.is_ai { "AI" } else { "Human" };
+            let where_from = if u.host.is_empty() || u.host == u.name {
+                String::new()
+            } else {
+                format!(" on {}", u.host)
+            };
+            let at = if u.last_at.len() >= 16 { &u.last_at[11..16] } else { "--:--" };
+            println!(
+                "  @{:<16} {:<6}{:<12} {} message(s), last at {at}",
+                u.name, kind, where_from, u.messages
+            );
+        }
+    }
+}
+
 /// Refuses a message whose @name reaches nobody. A misspelled mention does not
 /// fail, it goes quiet — and quiet is exactly what a message nobody answered
 /// looks like, so the mistake would be invisible for as long as it mattered.
@@ -362,9 +432,9 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
         return Ok(()); // the common case pays nothing
     }
     let mut known: Vec<String> = config::my_names().iter().map(|n| n.to_lowercase()).collect();
-    for m in fetch(channel, 0) {
-        let n = m.from.to_lowercase();
-        if !n.is_empty() && !known.contains(&n) {
+    for u in users_on(channel) {
+        let n = u.name.to_lowercase();
+        if !known.contains(&n) {
             known.push(n);
         }
     }
