@@ -219,7 +219,15 @@ pub fn save_session(name: &str, chans: &[String]) {
         channel: String::new(),
     };
     if let Ok(text) = serde_json::to_string(&s) {
-        let _ = std::fs::write(dir.join(id), text);
+        let final_path = dir.join(&id);
+        let tmp = dir.join(format!(".{id}.tmp"));
+        if std::fs::write(&tmp, text).is_ok() {
+            if std::fs::rename(&tmp, &final_path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            } else {
+                lock_down(&final_path);
+            }
+        }
     }
     prune_sessions(&dir);
 }

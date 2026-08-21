@@ -134,19 +134,27 @@ fn tools() -> Value {
 /// machine's default channel — so every chat on it becomes one voice on one
 /// heap, which is the mess this exists to prevent.
 fn needs_join() -> String {
+    // Which of the two reasons this is, said outright. They need different
+    // answers — one is retry, the other is that retrying cannot work — and
+    // telling them apart from outside means reading a process table.
+    let id = config::session_id();
+    let why = if id.is_empty() {
+        "\n\nWhy: this client sets no CLAUDE_CODE_SESSION_ID, so a join has nowhere to be \
+recorded and cannot stick. Repeating it will not help. Reading tools still work."
+            .to_string()
+    } else {
+        format!(
+            "\n\nWhy: this chat is {id}, and there is no record of a join under it. Either it \
+has not joined on this machine yet, or its record was removed. Calling collab_join now will fix \
+it and stay fixed."
+        )
+    };
     format!(
         "REFUSED: this chat has not joined yet. Call collab_join with a name and the channels \
 to listen to, then send this again. Nothing was posted.\n\nChannels available here: {}\n\nThey \
 must be from that list. A channel only works if both machines hold its key, so one that is not \
-listed cannot be reached from here at all.{}",
-        channel_list(),
-        if config::session_id().is_empty() {
-            "\n\nIf you did just call collab_join and got this anyway: this client sets no \
-CLAUDE_CODE_SESSION_ID, so the join had nowhere to be recorded and cannot stick. Repeating it \
-will not help. Reading tools still work."
-        } else {
-            ""
-        }
+listed cannot be reached from here at all.{why}",
+        channel_list()
     )
 }
 
