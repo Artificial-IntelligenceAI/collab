@@ -21,17 +21,29 @@ final class AppState: ObservableObject {
     /// A menu bar app has no View menu to put "Enter Full Screen" in, and a
     /// window does not offer it unless it is told it may — so it is asked for
     /// here, from the menu bar and from a button in the window itself.
+    /// A window can only go full screen if it says it may, and only if the app
+    /// is an ordinary one — a menu bar app is refused. So while the window is
+    /// open collab is an ordinary app, which is also what makes the green
+    /// button behave the way anybody would expect it to.
+    func makeOrdinary(_ w: NSWindow) {
+        w.collectionBehavior.insert(.fullScreenPrimary)
+        w.styleMask.insert(.resizable)
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     func toggleFullScreen() {
         // macOS will not give native full screen to an accessory app, and this
         // is one so that it lives in the menu bar without a Dock icon. Becoming
         // a regular app for as long as the window is up is the price; it drops
         // back when the window closes.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
         guard let w = mainWindow() else {
             openMainWindow?()
             return
         }
+        makeOrdinary(w)
         w.makeKeyAndOrderFront(nil)
         // The policy change has to reach the window server before the window
         // will accept going full screen; asking too soon promotes the app and
@@ -259,12 +271,23 @@ struct MenuContent: View {
 struct WindowCapability: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let v = NSView()
-        DispatchQueue.main.async {
-            guard let w = v.window else { return }
-            w.collectionBehavior.insert(.fullScreenPrimary)
-            w.styleMask.insert(.resizable)
-        }
+        // The window does not exist yet when this is made, and asking once and
+        // giving up is why the green button only ever zoomed. Keep looking
+        // briefly, then set it.
+        attach(to: v, tries: 20)
         return v
     }
+
+    private func attach(to v: NSView, tries: Int) {
+        guard tries > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            guard let w = v.window else {
+                attach(to: v, tries: tries - 1)
+                return
+            }
+            AppState.shared.makeOrdinary(w)
+        }
+    }
+
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
