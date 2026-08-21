@@ -902,11 +902,20 @@ pub fn get_file_cmd(which: &str, out: Option<&str>, channel: Option<&str>) {
 pub fn channels_cmd(show_keys: bool, as_json: bool) {
     let reg = channels::load();
     if as_json {
+        // The key is only included when it was asked for. The text form has
+        // always required -keys and the JSON form did not, so anything reading
+        // this for a channel list — the app, a log, a screenshot of a terminal
+        // — printed every key on the machine. The guard belongs on the data,
+        // not on the one caller that happened to be human.
         let list: Vec<_> = reg
             .iter()
             .map(|(name, ch)| {
-                serde_json::json!({"name": name, "key": ch.key, "mine": ch.mine,
-                                   "created": ch.created, "creator": ch.creator_name()})
+                let mut o = serde_json::json!({"name": name, "mine": ch.mine,
+                                   "created": ch.created, "creator": ch.creator_name()});
+                if show_keys {
+                    o["key"] = serde_json::json!(ch.key);
+                }
+                o
             })
             .collect();
         println!("{}", serde_json::json!(list));
