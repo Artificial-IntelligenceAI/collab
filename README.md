@@ -393,12 +393,17 @@ new public key. If it leaks, do the same, urgently.
 
 ## Windows
 
-Not finished. The Rust core cross-compiles once the target is installed:
+Not finished, but it builds. The Rust core cross-compiles once the toolchain is there:
 
     rustup target add x86_64-pc-windows-gnu && brew install mingw-w64
 
-`notify/windows` is the C# toast helper, built but never run — there is no Windows
-machine here. A native window for that side is still to do.
+Verified rather than assumed: that produces a `PE32+ executable (console) x86-64`,
+and `build.sh` stops skipping the Windows half. `notify/windows` is the C# toast
+helper and builds too.
+
+What has still never happened is either of them being **run**. Compiling for a
+platform says nothing about behaving on it, and no line of the Windows side has
+executed anywhere. A native window for that side is still to do.
 
 ## Files
 
