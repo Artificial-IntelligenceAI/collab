@@ -156,6 +156,12 @@ namespace Collab
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
+                    // collab speaks UTF-8. Without saying so, .NET decodes the
+                    // pipe with the console's legacy codepage and every
+                    // non-ASCII character arrives as mojibake — 😀 turns up as
+                    // ðŸ˜€, which reads as a font problem and is not one.
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8,
                 };
                 using var p = Process.Start(psi);
                 if (p == null) return "";
@@ -201,6 +207,8 @@ namespace Collab
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
             };
             try { watcher = Process.Start(psi); }
             catch (Exception e) { Fatal = "cannot start collab.exe — " + e.Message; Changed?.Invoke(); return; }
