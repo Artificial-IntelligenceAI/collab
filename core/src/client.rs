@@ -299,36 +299,41 @@ fn watch_one(
         // never who may look, and dropping it here broke exactly that.
         let addressed_elsewhere = !all && !m.is_for(&config::my_names());
 
+        // Deliver first; write down the place afterwards. The other order
+        // loses messages outright: emit() exits when the reader has gone, so
+        // the mark would already say "seen" for something nobody ever saw, and
+        // the next run skips it for good. A watcher whose window closed between
+        // receiving a message and printing it ate that message silently.
+        // Filtered messages are genuinely handled, so they do advance the mark.
+        if !(mine || addressed_elsewhere) {
+            if as_json {
+                if let Ok(s) = serde_json::to_string(
+                    &serde_json::json!({"type":"msg","msg":m,"replayed":replayed}),
+                ) {
+                    emit(&s);
+                }
+            } else if replayed {
+                emit(&format!(
+                    "[{}] (earlier) {}: {}",
+                    m.channel,
+                    m.label(),
+                    m.line()
+                ));
+            } else {
+                emit(&format!("[{}] {}: {}", m.channel, m.label(), m.line()));
+            }
+            // Backlog is not news. Popping a notification for a message from
+            // two hours ago says it has just been said, and an instruction read
+            // that way gets acted on a second time.
+            if let Some(n) = &notifier {
+                if !replayed {
+                    n.send(m);
+                }
+            }
+        }
         cursor.store(m.seq, SeqCst);
         if save {
             save_seen_for(channel, m.seq, &mut warned);
-        }
-        if mine || addressed_elsewhere {
-            return;
-        }
-        if as_json {
-            if let Ok(s) = serde_json::to_string(
-                &serde_json::json!({"type":"msg","msg":m,"replayed":replayed}),
-            ) {
-                emit(&s);
-            }
-        } else if replayed {
-            emit(&format!(
-                "[{}] (earlier) {}: {}",
-                m.channel,
-                m.label(),
-                m.line()
-            ));
-        } else {
-            emit(&format!("[{}] {}: {}", m.channel, m.label(), m.line()));
-        }
-        // Backlog is not news. Popping a notification for a message from two
-        // hours ago says it has just been said, and an instruction read that
-        // way gets acted on a second time.
-        if let Some(n) = &notifier {
-            if !replayed {
-                n.send(m);
-            }
         }
     };
 
