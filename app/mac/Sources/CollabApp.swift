@@ -57,6 +57,21 @@ final class AppState: ObservableObject {
                 }
             }
         }
+        // A window can be closed and opened again without SwiftUI rebuilding
+        // the view behind it, so the promotion done when that view was first
+        // made never runs a second time. The app stays an accessory, macOS
+        // quietly downgrades the green button from a full screen button to a
+        // zoom button, and clicking it only resizes the window. Re-asserting
+        // whenever the window comes forward is what makes the second opening
+        // behave like the first.
+        for n in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+            nc.addObserver(forName: n, object: nil, queue: .main) { note in
+                MainActor.assumeIsolated {
+                    guard let w = note.object as? NSWindow, w.title == "collab" else { return }
+                    AppState.shared.makeOrdinary(w)
+                }
+            }
+        }
         for n in [NSWindow.didEnterFullScreenNotification,
                   NSWindow.didExitFullScreenNotification] {
             nc.addObserver(forName: n, object: nil, queue: .main) { _ in
