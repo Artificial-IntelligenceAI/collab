@@ -1,70 +1,147 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Collab"
         x:Class="Collab.MainWindow"
         Title="collab" Height="640" Width="1000" MinHeight="420" MinWidth="720"
+        AllowDrop="True" Drop="OnDrop" DragOver="OnDragOver"
         WindowStartupLocation="CenterScreen">
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="Show"/>
+
+    <!-- a break between days -->
+    <DataTemplate DataType="{x:Type local:DaySep}">
+      <Grid Margin="4,14,4,6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Rectangle Height="1" Fill="{Binding RuleBrush}" VerticalAlignment="Center"/>
+        <TextBlock Text="{Binding Label}" Grid.Column="1" Margin="10,0" FontSize="11"
+                   Foreground="{Binding DimBrush}"/>
+        <Rectangle Height="1" Fill="{Binding RuleBrush}" Grid.Column="2" VerticalAlignment="Center"/>
+      </Grid>
+    </DataTemplate>
+
+    <!-- one message -->
+    <DataTemplate DataType="{x:Type local:Msg}">
+      <Grid Margin="0,3,0,3">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="46"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Text="{Binding HHMM}" Foreground="{Binding DimBrush}" FontSize="12"
+                   VerticalAlignment="Top" Margin="0,2,8,0"/>
+
+        <!-- who said it: name, a Human/AI tag, and the machine for an AI -->
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,8,0">
+          <TextBlock Text="{Binding Who}" Foreground="{Binding NameBrush}" FontWeight="SemiBold"/>
+          <Border BorderBrush="{Binding RoleBrush}" BorderThickness="1" CornerRadius="3"
+                  Margin="4,1,0,0" Padding="4,0" VerticalAlignment="Center" Opacity="0.7">
+            <TextBlock Text="{Binding RoleLabel}" FontSize="9" FontWeight="Bold"
+                       Foreground="{Binding RoleBrush}"/>
+          </Border>
+          <TextBlock Text="{Binding MachineLabel}" FontSize="10" Margin="4,1,0,0"
+                     Foreground="{Binding DimBrush}" VerticalAlignment="Center"
+                     Visibility="{Binding ShowMachine, Converter={StaticResource Show}}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Column="2">
+          <!-- plain text -->
+          <TextBlock Text="{Binding Text}" Foreground="{Binding TextBrush}" TextWrapping="Wrap"
+                     Visibility="{Binding IsChat, Converter={StaticResource Show}}"/>
+          <!-- a change entry -->
+          <StackPanel Orientation="Horizontal"
+                      Visibility="{Binding IsChange, Converter={StaticResource Show}}">
+            <Border Background="{Binding ActionBrush}" CornerRadius="4" Padding="6,1"
+                    VerticalAlignment="Top" Margin="0,1,8,0">
+              <TextBlock Text="{Binding ActionUpper}" FontSize="10" FontWeight="Bold"
+                         Foreground="{Binding AccentFg}"/>
+            </Border>
+            <StackPanel>
+              <TextBlock Text="{Binding Target}" Foreground="{Binding EmBrush}"
+                         FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
+              <TextBlock Text="{Binding Text}" Foreground="{Binding TextBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+          </StackPanel>
+          <!-- a file: a card, because it is a thing you act on -->
+          <Border Visibility="{Binding IsFile, Converter={StaticResource Show}}"
+                  Background="{Binding CardBrush}" BorderBrush="{Binding RuleBrush}"
+                  BorderThickness="1" CornerRadius="6" Padding="10,7" Margin="0,2,0,2"
+                  HorizontalAlignment="Left">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="15"
+                         Foreground="{Binding CyanBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,14,0">
+                <TextBlock Text="{Binding FileName}" FontFamily="Consolas" FontSize="12"
+                           Foreground="{Binding EmBrush}"/>
+                <TextBlock Text="{Binding SizeLabel}" FontSize="11" Foreground="{Binding DimBrush}"/>
+              </StackPanel>
+              <Button Content="Save" Tag="{Binding}" Click="OnSaveFile" Padding="10,3"
+                      VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
+  </Window.Resources>
+
   <Grid x:Name="Root">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- header: view tabs, channel picker, connection state -->
-    <Grid x:Name="Header" Grid.Row="0" Margin="12,10,12,10">
+    <Grid Grid.Row="0" Margin="12,10,12,10">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="Auto"/>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" Grid.Column="0">
         <Button x:Name="TabChat" Content="Chat" Click="OnChat" Padding="14,5" Margin="0,0,6,0"/>
         <Button x:Name="TabChanges" Content="Changes" Click="OnChanges" Padding="14,5"/>
       </StackPanel>
-      <ComboBox x:Name="ChannelPicker" Grid.Column="2" MinWidth="160"
-                SelectionChanged="OnChannel" Margin="0,0,10,0"/>
-      <StackPanel Orientation="Horizontal" Grid.Column="3" VerticalAlignment="Center">
+      <ComboBox x:Name="ChannelPicker" Grid.Column="2" MinWidth="150"
+                SelectionChanged="OnChannel" Margin="0,0,8,0"/>
+      <TextBox x:Name="Search" Grid.Column="3" Width="150" Padding="6,4" Margin="0,0,8,0"
+               TextChanged="OnSearch"/>
+      <Button x:Name="AttachBtn" Grid.Column="4" Content="&#xE723;" FontFamily="Segoe MDL2 Assets"
+              Click="OnAttach" Padding="9,4" Margin="0,0,6,0" ToolTip="Send a file"/>
+      <Button x:Name="ChannelsBtn" Grid.Column="5" Content="&#xE8FD;" FontFamily="Segoe MDL2 Assets"
+              Click="OnChannels" Padding="9,4" Margin="0,0,10,0" ToolTip="Channels"/>
+      <StackPanel Orientation="Horizontal" Grid.Column="6" VerticalAlignment="Center">
         <Ellipse x:Name="Dot" Width="8" Height="8" Margin="0,0,6,0"/>
         <TextBlock x:Name="ServerLabel" VerticalAlignment="Center" FontSize="12"/>
       </StackPanel>
     </Grid>
 
-    <!-- the conversation -->
-    <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                  Padding="12,0,12,0">
-      <ItemsControl x:Name="List">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate>
-            <Grid Margin="0,3,0,3">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="46"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="{Binding HHMM}" Foreground="{Binding DimBrush}"
-                         FontSize="12" VerticalAlignment="Top" Margin="0,2,8,0"/>
-              <TextBlock Text="{Binding Who}" Foreground="{Binding NameBrush}"
-                         FontWeight="SemiBold" Grid.Column="1" VerticalAlignment="Top"
-                         Margin="0,0,8,0"/>
-              <TextBlock Text="{Binding Line}" Foreground="{Binding TextBrush}"
-                         Grid.Column="2" TextWrapping="Wrap"/>
-            </Grid>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </ScrollViewer>
-
-    <!-- composer -->
-    <Grid x:Name="Composer" Grid.Row="2" Margin="12,8,12,12">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <TextBox x:Name="Entry" Grid.Column="0" Padding="8,6" KeyDown="OnKey"
-               BorderThickness="1" FontSize="13"/>
-      <Button x:Name="SendBtn" Grid.Column="1" Content="Send" Click="OnSend"
-              Padding="18,6" Margin="8,0,0,0" FontWeight="SemiBold"/>
+    <Grid Grid.Row="1">
+      <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" Padding="12,0,12,0">
+        <ItemsControl x:Name="List"/>
+      </ScrollViewer>
+      <TextBlock x:Name="EmptyNote" HorizontalAlignment="Center" VerticalAlignment="Center"
+                 FontSize="13" TextAlignment="Center" Visibility="Collapsed"/>
     </Grid>
+
+    <Border x:Name="ComposerBar" Grid.Row="2" Padding="14,9">
+      <StackPanel>
+        <!-- @ suggestions, above the box the way WhatsApp does it -->
+        <ListBox x:Name="Suggest" MaxHeight="120" Visibility="Collapsed" Margin="0,0,0,6"
+                 BorderThickness="1" PreviewKeyDown="OnSuggestKey"
+                 MouseDoubleClick="OnSuggestPick"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBox x:Name="Entry" Grid.Column="0" Padding="8,6" FontSize="13"
+                   BorderThickness="1" AcceptsReturn="False" MaxLines="5"
+                   TextWrapping="Wrap" PreviewKeyDown="OnKey" TextChanged="OnDraft"/>
+          <Button x:Name="SendBtn" Grid.Column="1" Content="Send" Click="OnSend"
+                  Padding="18,6" Margin="8,0,0,0" FontWeight="SemiBold"/>
+        </Grid>
+        <TextBlock x:Name="Footer" FontSize="11" Margin="2,5,0,0"/>
+      </StackPanel>
+    </Border>
   </Grid>
 </Window>

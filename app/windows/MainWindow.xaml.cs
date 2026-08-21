@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,6 +13,7 @@ namespace Collab
         readonly Core core = new();
         string view = "chat";
         string channel = "";
+        List<string> names = new();     // who can be @mentioned here
 
         public MainWindow()
         {
@@ -20,8 +22,6 @@ namespace Collab
             Closed += (_, _) => core.Stop();
             Activated += (_, _) =>
             {
-                // Windows has no notification worth the plumbing for this, so
-                // the theme is re-read whenever the window comes forward.
                 var dark = Sol.SystemPrefersDark();
                 if (dark != Sol.Dark) { Sol.Dark = dark; Paint(); Rebuild(); }
             };
@@ -30,28 +30,37 @@ namespace Collab
         void OnLoaded(object? s, RoutedEventArgs e)
         {
             Paint();
-            core.Changed += () => Dispatcher.Invoke(() => { Sync(); });
+            core.Changed += () => Dispatcher.Invoke(Sync);
             core.Arrived += OnArrived;
             core.Start();
             Entry.Focus();
         }
 
-        /// Everything the theme touches, in one place.
         void Paint()
         {
             Background = Sol.Bg;
             Root.Background = Sol.Bg;
             ServerLabel.Foreground = Sol.FgDim;
-            Entry.Background = Sol.BgAlt;
-            Entry.Foreground = Sol.FgEm;
-            Entry.BorderBrush = Sol.Rule;
-            Entry.CaretBrush = Sol.FgEm;
-            SendBtn.Background = Sol.Blue;
-            SendBtn.Foreground = Sol.OnAccent;
-            SendBtn.BorderBrush = Sol.Blue;
-            ChannelPicker.Background = Sol.BgAlt;
-            ChannelPicker.Foreground = Sol.FgEm;
+            EmptyNote.Foreground = Sol.FgDim;
+            ComposerBar.Background = Sol.BgAlt;
+            ComposerBar.BorderBrush = Sol.Rule;
+            ComposerBar.BorderThickness = new Thickness(0, 1, 0, 0);
+            foreach (var t in new[] { Entry, Search })
+            {
+                t.Background = Sol.Bg;
+                t.Foreground = Sol.FgEm;
+                t.BorderBrush = Sol.Rule;
+                t.CaretBrush = Sol.FgEm;
+            }
+            SendBtn.Background = Sol.Blue; SendBtn.Foreground = Sol.OnAccent; SendBtn.BorderBrush = Sol.Blue;
+            foreach (var b in new[] { AttachBtn, ChannelsBtn })
+            {
+                b.Background = Sol.BgAlt; b.Foreground = Sol.Fg; b.BorderBrush = Sol.Rule;
+            }
+            ChannelPicker.Background = Sol.BgAlt; ChannelPicker.Foreground = Sol.FgEm;
+            Suggest.Background = Sol.Bg; Suggest.Foreground = Sol.FgEm; Suggest.BorderBrush = Sol.Rule;
             PaintTabs();
+            Footer.Foreground = Sol.FgDim;
         }
 
         void PaintTabs()
@@ -77,9 +86,8 @@ namespace Collab
                 var keep = channel;
                 ChannelPicker.Items.Clear();
                 foreach (var c in core.Channels) ChannelPicker.Items.Add(c);
-                var pick = core.Channels.Contains(keep) ? keep : core.Channels.FirstOrDefault() ?? "";
-                channel = pick;
-                ChannelPicker.SelectedItem = pick;
+                channel = core.Channels.Contains(keep) ? keep : core.Channels.FirstOrDefault() ?? "";
+                ChannelPicker.SelectedItem = channel;
             }
             Rebuild();
         }
@@ -87,50 +95,195 @@ namespace Collab
         void Rebuild()
         {
             if (string.IsNullOrEmpty(channel)) return;
-            var rows = core.Messages
+            var q = Search.Text.Trim();
+            var msgs = core.Messages
                 .Where(m => m.Channel == channel)
                 .Where(m => view == "changes" ? m.IsChange : !m.IsChange)
+                .Where(m => q.Length == 0
+                            || m.Text.Contains(q, StringComparison.OrdinalIgnoreCase)
+                            || m.Who.Contains(q, StringComparison.OrdinalIgnoreCase)
+                            || m.Target.Contains(q, StringComparison.OrdinalIgnoreCase)
+                            || m.FileName.Contains(q, StringComparison.OrdinalIgnoreCase))
                 .ToList();
+
+            // Who can be addressed here, for the @ suggestions.
+            names = core.Messages.Where(m => m.Channel == channel)
+                .Select(m => m.Who).Where(n => n.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n).ToList();
+
+            var rows = new List<object>();
+            DateTime last = DateTime.MinValue;
+            foreach (var m in msgs)
+            {
+                var day = m.When.Date;
+                if (day != last && m.When != DateTimeOffset.MinValue)
+                {
+                    rows.Add(new DaySep { Label = DaySep.LabelFor(m.When) });
+                    last = day;
+                }
+                rows.Add(m);
+            }
             List.ItemsSource = rows;
-            Entry.IsEnabled = view == "chat";
-            SendBtn.IsEnabled = view == "chat";
+
+            EmptyNote.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EmptyNote.Text = q.Length > 0
+                ? $"Nothing matching “{q}” on #{channel}."
+                : view == "changes"
+                    ? $"No changes recorded on #{channel} yet.\nThey appear here when either side records one."
+                    : $"Nothing on #{channel} yet.\nSay something below and it reaches the other machine.";
+
+            Entry.IsEnabled = SendBtn.IsEnabled = view == "chat";
+            Footer.Text = $"posting as {core.Me} on #{channel}";
+            Footer.Foreground = Sol.FgDim;
             Scroller.ScrollToEnd();
         }
 
         void OnArrived(Msg m)
         {
-            // Not your own words read back at you, and not a view you are
-            // already looking at with the window in front of you.
             if (m.Who == core.Me && !m.IsAI) return;
             if (IsActive && m.Channel == channel) return;
             Toast.Post("collab", "#" + m.Channel + " · " + m.Who, m.Line);
         }
 
+        // ── @ suggestions ──────────────────────────────────────
+
+        /// The word being typed after an @, if the caret is inside one.
+        string? MentionPrefix()
+        {
+            var text = Entry.Text;
+            var caret = Entry.CaretIndex;
+            if (caret == 0 || caret > text.Length) return null;
+            var at = text.LastIndexOf('@', Math.Max(0, caret - 1));
+            if (at < 0) return null;
+            if (at > 0 && (char.IsLetterOrDigit(text[at - 1]) || text[at - 1] == '@')) return null;
+            var word = text.Substring(at + 1, caret - at - 1);
+            return word.Any(char.IsWhiteSpace) ? null : word;
+        }
+
+        void OnDraft(object s, TextChangedEventArgs e)
+        {
+            var p = MentionPrefix();
+            if (p == null) { Suggest.Visibility = Visibility.Collapsed; return; }
+            var hits = names.Where(n => n.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                            .Take(6).ToList();
+            if (hits.Count == 0) { Suggest.Visibility = Visibility.Collapsed; return; }
+            Suggest.ItemsSource = hits;
+            Suggest.SelectedIndex = 0;
+            Suggest.Visibility = Visibility.Visible;
+        }
+
+        void Accept(string name)
+        {
+            var text = Entry.Text;
+            var caret = Entry.CaretIndex;
+            var at = text.LastIndexOf('@', Math.Max(0, caret - 1));
+            if (at < 0) return;
+            Entry.Text = text.Substring(0, at + 1) + name + " " + text.Substring(caret);
+            Entry.CaretIndex = at + 1 + name.Length + 1;
+            Suggest.Visibility = Visibility.Collapsed;
+        }
+
+        void OnSuggestKey(object s, KeyEventArgs e) { }
+        void OnSuggestPick(object s, MouseButtonEventArgs e)
+        {
+            if (Suggest.SelectedItem is string n) { Accept(n); Entry.Focus(); }
+        }
+
+        void OnKey(object s, KeyEventArgs e)
+        {
+            if (Suggest.Visibility == Visibility.Visible)
+            {
+                // While the list is open, Return takes the highlighted name
+                // rather than sending — that is what makes it a suggestion
+                // instead of an obstacle.
+                switch (e.Key)
+                {
+                    case Key.Down:
+                        Suggest.SelectedIndex = Math.Min(Suggest.SelectedIndex + 1, Suggest.Items.Count - 1);
+                        e.Handled = true; return;
+                    case Key.Up:
+                        Suggest.SelectedIndex = Math.Max(Suggest.SelectedIndex - 1, 0);
+                        e.Handled = true; return;
+                    case Key.Enter:
+                    case Key.Tab:
+                        if (Suggest.SelectedItem is string n) Accept(n);
+                        e.Handled = true; return;
+                    case Key.Escape:
+                        Suggest.Visibility = Visibility.Collapsed; e.Handled = true; return;
+                }
+            }
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                OnSend(s, e); e.Handled = true;
+            }
+        }
+
+        // ── actions ────────────────────────────────────────────
+
         void OnChat(object s, RoutedEventArgs e) { view = "chat"; PaintTabs(); Rebuild(); }
         void OnChanges(object s, RoutedEventArgs e) { view = "changes"; PaintTabs(); Rebuild(); }
+        void OnSearch(object s, TextChangedEventArgs e) => Rebuild();
 
         void OnChannel(object s, SelectionChangedEventArgs e)
         {
             if (ChannelPicker.SelectedItem is string c && c != channel) { channel = c; Rebuild(); }
         }
 
-        void OnKey(object s, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None) { OnSend(s, e); e.Handled = true; }
-        }
-
         void OnSend(object s, RoutedEventArgs e)
         {
             var text = Entry.Text.Trim();
             if (text.Length == 0 || string.IsNullOrEmpty(channel)) return;
-            Entry.Text = "";
-            // The composer posts to the channel on screen, not the one it
-            // started on — the Mac app got that wrong once and it was
-            // thoroughly confusing.
+            // Posts to the channel on screen, not the one it started on.
             var target = channel;
+            Entry.Text = "";
+            Suggest.Visibility = Visibility.Collapsed;
             var reply = core.Post(target, text);
             if (reply.StartsWith("collab:") || reply.Contains("REFUSED"))
-                ServerLabel.Text = reply.Split('\n')[0];
+            {
+                Footer.Text = reply.Split('\n')[0];
+                Footer.Foreground = Sol.Red;
+            }
+        }
+
+        void OnAttach(object s, RoutedEventArgs e)
+        {
+            var d = new Microsoft.Win32.OpenFileDialog { Title = "Send a file to #" + channel };
+            if (d.ShowDialog() == true) SendFile(d.FileName);
+        }
+
+        void SendFile(string path)
+        {
+            var reply = core.SendFile(channel, path, "");
+            Footer.Text = reply.Split('\n')[0].Trim();
+            Footer.Foreground = reply.StartsWith("collab:") ? Sol.Red : Sol.Green;
+        }
+
+        void OnDragOver(object s, DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        void OnDrop(object s, DragEventArgs e)
+        {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+                SendFile(files[0]);
+        }
+
+        void OnSaveFile(object s, RoutedEventArgs e)
+        {
+            if (s is not Button b || b.Tag is not Msg m) return;
+            var d = new Microsoft.Win32.SaveFileDialog { FileName = m.FileName };
+            if (d.ShowDialog() != true) return;
+            var reply = Core.Run($"get \"{m.FileName}\" -c \"{m.Channel}\" -o \"{d.FileName}\"");
+            Footer.Text = reply.Split('\n')[0].Trim();
+            Footer.Foreground = reply.StartsWith("collab:") ? Sol.Red : Sol.Green;
+        }
+
+        void OnChannels(object s, RoutedEventArgs e)
+        {
+            new ChannelsWindow { Owner = this }.ShowDialog();
+            core.LoadWho();
         }
     }
 }

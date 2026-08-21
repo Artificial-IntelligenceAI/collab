@@ -54,6 +54,24 @@ namespace Collab
                 ? $"[file] {FileName} ({Human(FileSize)}){(string.IsNullOrWhiteSpace(Text) ? "" : " — " + Text)}"
                 : Text;
 
+        public bool IsChat => !IsChange && !IsFile;
+        public string RoleLabel => IsAI ? "AI" : "Human";
+        /// An AI names itself and the machine it runs on; a person is just the
+        /// machine. "Which of us was that" has to stay answerable.
+        public string MachineLabel => IsAI && !string.IsNullOrEmpty(Host) && Host != Who ? Host : "";
+        public bool ShowMachine => MachineLabel.Length > 0;
+        public string ActionUpper => (Action ?? "").ToUpperInvariant();
+        public string SizeLabel => Human(FileSize);
+        public System.Windows.Media.Brush RoleBrush => IsAI ? Sol.ForName(Who) : Sol.FgDim;
+        public System.Windows.Media.Brush ActionBrush => Sol.ForAction(Action);
+        public System.Windows.Media.Brush AccentFg => Sol.OnAccent;
+        public System.Windows.Media.Brush CyanBrush => Sol.Cyan;
+        public System.Windows.Media.Brush EmBrush => Sol.FgEm;
+        public System.Windows.Media.Brush CardBrush => Sol.BgAlt;
+        public System.Windows.Media.Brush RuleBrush => Sol.Rule;
+        public DateTimeOffset When =>
+            DateTimeOffset.TryParse(At, out var t) ? t.ToLocalTime() : DateTimeOffset.MinValue;
+
         // The row template reads these. Keeping them on the message means the
         // list rebuilds in the right colours when the theme changes, without a
         // converter per column.
@@ -65,6 +83,22 @@ namespace Collab
         static string Human(long n) =>
             n >= 1048576 ? $"{n / 1048576.0:0.#} MB" :
             n >= 1024    ? $"{n / 1024.0:0.#} KB" : $"{n} B";
+    }
+
+    /// A break in the stream, so a conversation that spans days reads as one.
+    public class DaySep
+    {
+        public string Label { get; set; } = "";
+        public System.Windows.Media.Brush RuleBrush => Sol.Rule;
+        public System.Windows.Media.Brush DimBrush => Sol.FgDim;
+
+        public static string LabelFor(DateTimeOffset d)
+        {
+            var day = d.Date;
+            if (day == DateTime.Today) return "TODAY";
+            if (day == DateTime.Today.AddDays(-1)) return "YESTERDAY";
+            return d.ToString("ddd d MMM").ToUpperInvariant();
+        }
     }
 
     public class Core
@@ -220,6 +254,23 @@ namespace Collab
 
         public string Post(string channel, string text) =>
             Run($"post -c {Q(channel)} {Q(text)}");
+
+        public string SendFile(string channel, string path, string caption) =>
+            Run($"send {Q(path)} -c {Q(channel)} -m {Q(caption)}");
+
+        /// Names only. The keys are deliberately not asked for here — this list
+        /// is for the picker, and a picker has no business holding secrets.
+        public System.Collections.Generic.List<string> ChannelNames()
+        {
+            var outp = new System.Collections.Generic.List<string>();
+            try
+            {
+                foreach (var c in JsonDocument.Parse(Run("channels -json")).RootElement.EnumerateArray())
+                    if (c.TryGetProperty("name", out var n)) outp.Add(n.GetString() ?? "");
+            }
+            catch { }
+            return outp;
+        }
 
         public void Stop()
         {
