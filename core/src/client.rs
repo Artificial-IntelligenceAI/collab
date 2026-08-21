@@ -914,6 +914,7 @@ pub fn channels_cmd(show_keys: bool, as_json: bool) {
                                    "created": ch.created, "creator": ch.creator_name()});
                 if show_keys {
                     o["key"] = serde_json::json!(ch.key);
+                    o["invite"] = serde_json::json!(channels::invite(name, &ch.key));
                 }
                 o
             })
@@ -928,7 +929,10 @@ pub fn channels_cmd(show_keys: bool, as_json: bool) {
     for (name, ch) in reg {
         let origin = if ch.mine { "made here" } else { "joined" };
         if show_keys {
-            println!("#{name}  ({origin})\n    key = {}", ch.key);
+            println!(
+                "#{name}  ({origin})\n    invite = {}",
+                channels::invite(&name, &ch.key)
+            );
         } else {
             println!("#{name}  ({origin})");
         }
@@ -944,7 +948,7 @@ pub fn channel_create(name: &str) {
     match channels::create(name) {
         Ok((n, key)) => {
             println!("#{n}");
-            println!("{key}");
+            println!("{}", channels::invite(&n, &key));
         }
         Err(e) => {
             eprintln!("collab: {e}");
@@ -953,8 +957,29 @@ pub fn channel_create(name: &str) {
     }
 }
 
-pub fn channel_add(name: &str, key: &str) {
-    match channels::add(name, key, "") {
+/// Takes either an invite (`name:key`, one argument) or the older
+/// `<name> <key>` pair. An invite carries the name, so the person joining does
+/// not choose one — which is what stopped both machines agreeing on what the
+/// room was called.
+pub fn channel_add(first: &str, second: &str) {
+    let (name, key) = if second.trim().is_empty() {
+        let (n, k) = channels::split_invite(first);
+        match n {
+            Some(n) => (n, k),
+            None => {
+                eprintln!(
+                    "collab: that looks like a bare key with no channel name.\n  join with the invite the other person copied — it looks like  roblox-game:{}…\n  or give a name yourself: collab channel add <name> <key>",
+                    &k.chars().take(8).collect::<String>()
+                );
+                std::process::exit(2);
+            }
+        }
+    } else {
+        // Explicit name wins, but an invite pasted into the key slot should not
+        // smuggle its name in silently.
+        (first.to_string(), channels::split_invite(second).1)
+    };
+    match channels::add(&name, &key, "") {
         Ok(n) => println!("joined #{n} — it will work once the other machine is reachable"),
         Err(e) => {
             eprintln!("collab: {e}");

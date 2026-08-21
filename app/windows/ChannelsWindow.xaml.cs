@@ -22,9 +22,8 @@ namespace Collab
             Background = Sol.Bg;
             foreach (var t in new TextBlock[] { Blurb, MakeLabel, JoinLabel })
                 t.Foreground = t == Blurb ? Sol.FgDim : Sol.FgEm;
-            foreach (var t in new TextBlock[] { JoinNameHint, JoinKeyHint })
-                t.Foreground = Sol.FgDim;
-            foreach (var b in new TextBox[] { NewName, JoinName, JoinKey })
+            JoinKeyHint.Foreground = Sol.FgDim;
+            foreach (var b in new TextBox[] { NewName, JoinKey })
             {
                 b.Background = Sol.BgAlt; b.Foreground = Sol.FgEm;
                 b.BorderBrush = Sol.Rule; b.CaretBrush = Sol.FgEm;
@@ -65,6 +64,7 @@ namespace Collab
         {
             string name = c.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
             string key = c.TryGetProperty("key", out var k) ? k.GetString() ?? "" : "";
+            string invite = c.TryGetProperty("invite", out var iv) ? iv.GetString() ?? key : key;
             bool mine = c.TryGetProperty("mine", out var m) && m.GetBoolean();
 
             var head = new StackPanel { Orientation = Orientation.Horizontal };
@@ -73,12 +73,12 @@ namespace Collab
             head.Children.Add(new TextBlock { Text = mine ? "made here" : "joined", FontSize = 11,
                                               Foreground = Sol.FgDim, Margin = new Thickness(8, 2, 0, 0) });
 
-            var keyLine = new TextBlock { Text = key, FontFamily = new FontFamily("Consolas"), FontSize = 11,
+            var keyLine = new TextBlock { Text = invite, FontFamily = new FontFamily("Consolas"), FontSize = 11,
                                           Foreground = Sol.FgDim, TextWrapping = TextWrapping.Wrap,
                                           Margin = new Thickness(0, 3, 0, 0) };
 
-            var copy = new Button { Content = "Copy key", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
-            copy.Click += (_, _) => { try { Clipboard.SetText(key); copy.Content = "Copied"; } catch { } };
+            var copy = new Button { Content = "Copy invite", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
+            copy.Click += (_, _) => { try { Clipboard.SetText(invite); copy.Content = "Copied"; } catch { } };
 
             var drop = new Button { Content = mine ? "Delete" : "Forget", Padding = new Thickness(10, 3, 10, 3) };
             drop.Click += (_, _) =>
@@ -116,15 +116,16 @@ namespace Collab
             Reload();
         }
 
+        /// One argument. The invite carries the name, so joining is joining —
+        /// nobody is asked what to call a room somebody else made.
         void OnJoin(object s, RoutedEventArgs e)
         {
-            var name = JoinName.Text.Trim();
-            var key = JoinKey.Text.Trim();
-            if (name.Length == 0 || key.Length == 0) return;
-            var outp = Core.Run($"channel add \"{name}\" \"{key}\"").Trim();
+            var invite = JoinKey.Text.Trim();
+            if (invite.Length == 0) return;
+            var outp = Core.Run($"channel add \"{invite}\"").Trim();
             Note.Text = outp.Split('\n')[0];
             Note.Foreground = outp.StartsWith("collab:") ? Sol.Red : Sol.Green;
-            if (!outp.StartsWith("collab:")) { JoinName.Text = ""; JoinKey.Text = ""; }
+            if (!outp.StartsWith("collab:")) JoinKey.Text = "";
             Reload();
         }
 

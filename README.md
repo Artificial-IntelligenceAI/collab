@@ -40,11 +40,20 @@ can read the keys. Worth knowing before putting a key on a shared PC.
 Do not paste a key into a file that might be committed — that is a mistake this README
 made once, and git remembers.
 
-Send that key to the other person however you like. On their machine they paste it
-into the same panel, or run:
+The app gives you an **invite** — the name and the key in one string:
 
-    collab channel add roblox-game <key>
-    collab channels [-keys]        # what this machine holds
+    roblox-game:<44 characters of base64>
+
+Send that however you like. The other person pastes it into the same panel and is in.
+They are not asked to name it: the invite carries the name, so both machines call the
+room the same thing. Joining a channel is joining, not naming.
+
+    collab channel add roblox-game:<key>   # or paste it in the app
+    collab channels [-keys]                # what this machine holds
+
+A bare key still works if you give a name yourself, but nothing then guarantees the two
+machines agree — which is how one machine ended up holding one key under two names, with
+messages arriving on whichever the server met first.
 
 **Deleting is not leaving.** *Leave* drops your copy of the key and touches nobody
 else's. *Delete* closes the room: the messages go from the server and the key is

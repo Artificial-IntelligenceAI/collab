@@ -11,6 +11,9 @@ import SwiftUI
 struct ChannelInfo: Codable, Identifiable, Hashable {
     var name: String
     var key: String
+    /// name and key in one string. This is the thing you send someone: they
+    /// paste it and are in, under the same name, without choosing one.
+    var invite: String?
     var mine: Bool
     var created: String
     var creator: String
@@ -69,6 +72,13 @@ final class ChannelStore: ObservableObject {
             self.error = error.localizedDescription
             return nil
         }
+    }
+
+    /// Joining with an invite: one argument, and the name comes with it.
+    func join(invite: String) -> Bool {
+        error = nil
+        do { _ = try collab(["channel", "add", invite]); reload(); return true }
+        catch { self.error = "\(error)"; return false }
     }
 
     func add(name: String, key: String) -> Bool {
@@ -172,7 +182,7 @@ struct ChannelsView: View {
                 Text(c.mine ? "made here" : "joined")
                     .font(.system(size: 10)).foregroundStyle(Sol.fgDim)
                 Spacer()
-                Button(copied == c.name ? "Copied" : "Copy key") { copy(c.key, tag: c.name) }
+                Button(copied == c.name ? "Copied" : "Copy invite") { copy(c.invite ?? c.key, tag: c.name) }
                     .buttonStyle(.borderless).font(.system(size: 11))
                 // Made here: closing it is real, and irreversible, so it asks.
                 // Given to you: you can only put your own copy down.
@@ -187,10 +197,16 @@ struct ChannelsView: View {
                         .help("Drops your key. Only \(c.creator.isEmpty ? "whoever made it" : c.creator) can delete it")
                 }
             }
-            Text(c.key)
+            Text(c.invite ?? c.key)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Sol.fgDim).textSelection(.enabled).lineLimit(1)
         }
+    }
+
+    private func join() {
+        let invite = addKey.trimmingCharacters(in: .whitespaces)
+        guard !invite.isEmpty else { return }
+        if store.join(invite: invite) { addKey = ""; onChange() }
     }
 
     private var maker: some View {
@@ -237,18 +253,15 @@ struct ChannelsView: View {
                     .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
+            // One field. The invite carries the name, so joining is joining —
+            // you do not get asked what to call a room somebody else made, and
+            // the two machines cannot end up disagreeing about it.
             HStack {
-                TextField("What they call the channel, e.g. roblox-game", text: $addName)
-                    .textFieldStyle(.roundedBorder).frame(width: 150)
-                TextField("…and the key they sent", text: $addKey)
+                TextField("Paste the invite someone sent you", text: $addKey)
                     .textFieldStyle(.roundedBorder)
-                Button("Join") {
-                    if store.add(name: addName, key: addKey) {
-                        addName = ""; addKey = ""; onChange()
-                    }
-                }
-                .disabled(addName.trimmingCharacters(in: .whitespaces).isEmpty
-                          || addKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .onSubmit(join)
+                Button("Join", action: join)
+                    .disabled(addKey.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             if let e = store.error {

@@ -30,7 +30,7 @@ const USAGE: &str = "usage:
   collab setup                          first-run setup: server or client, then prove it
   collab who                            show the name, channel, server and key in use
   collab channels [-keys]               channels on this machine
-  collab channel add <name> <key>       join a channel someone sent you
+  collab channel add <invite>           join with the invite someone sent you
   collab channel delete <name>          close it everywhere (only where it was made)
   collab channel forget <name>          leave it (drops your key only)
   collab update [-yes]                  check for a signed update, and install it

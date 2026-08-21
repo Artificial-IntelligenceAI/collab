@@ -96,6 +96,25 @@ pub fn tidy(name: &str) -> String {
         .collect()
 }
 
+/// An invite is the channel's name and its key in one string, so joining is
+/// paste-one-thing and both machines end up calling the room the same name —
+/// the way joining a group chat works. `:` is the separator because a channel
+/// name cannot contain one (tidy strips it) and base64 never produces one.
+pub fn invite(name: &str, key: &str) -> String {
+    format!("{name}:{key}")
+}
+
+/// Splits an invite back apart. A bare key is still accepted everywhere an
+/// invite is, so anything already shared keeps working — it just cannot carry
+/// a name, and the caller has to supply one.
+pub fn split_invite(s: &str) -> (Option<String>, String) {
+    let s = s.trim();
+    match s.split_once(':') {
+        Some((n, k)) if !n.is_empty() && !k.is_empty() => (Some(tidy(n)), k.trim().to_string()),
+        _ => (None, s.to_string()),
+    }
+}
+
 pub fn create(name: &str) -> Result<(String, String), String> {
     let name = tidy(name);
     if name.is_empty() {
