@@ -76,10 +76,48 @@ final class AppState: ObservableObject {
         }
         for n in [NSWindow.didEnterFullScreenNotification,
                   NSWindow.didExitFullScreenNotification] {
-            nc.addObserver(forName: n, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { AppState.shared.inTransition = false }
+            nc.addObserver(forName: n, object: nil, queue: .main) { note in
+                MainActor.assumeIsolated {
+                    let s = AppState.shared
+                    s.inTransition = false
+                    s.note("ended \(note.name.rawValue) \(s.state(note.object as? NSWindow))")
+                }
             }
         }
+    }
+
+    /// Full screen has broken and been fixed four times, each time for a
+    /// different reason, and each fix verified before it broke again. Guessing
+    /// after the fact has not worked, so every attempt writes down what was
+    /// actually true at the moment it was made. When it next fails, the answer
+    /// is already on disk instead of being reconstructed from memory.
+    func note(_ line: String) {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".collab-fullscreen.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        guard let data = "\(stamp) \(line)\n".data(using: .utf8) else { return }
+        if let h = try? FileHandle(forWritingTo: path) {
+            defer { try? h.close() }
+            // Keep it small: this is a tail, not an archive.
+            if (try? h.seekToEnd()) ?? 0 > 64_000 {
+                try? FileHandle(forWritingTo: path).truncate(atOffset: 0)
+            }
+            try? h.seekToEnd()
+            try? h.write(contentsOf: data)
+        } else {
+            try? data.write(to: path)
+        }
+    }
+
+    /// Everything that decides whether a window may go full screen.
+    func state(_ w: NSWindow?) -> String {
+        guard let w else { return "no-window policy=\(NSApp.activationPolicy().rawValue)" }
+        let cb = w.collectionBehavior
+        return "policy=\(NSApp.activationPolicy().rawValue) primary=\(cb.contains(.fullScreenPrimary)) "
+            + "none=\(cb.contains(.fullScreenNone)) cb=\(cb.rawValue) "
+            + "isFS=\(w.styleMask.contains(.fullScreen)) resizable=\(w.styleMask.contains(.resizable)) "
+            + "style=\(w.styleMask.rawValue) inTransition=\(inTransition) "
+            + "frame=\(Int(w.frame.width))x\(Int(w.frame.height)) key=\(w.isKeyWindow) main=\(w.isMainWindow)"
     }
 
     func toggleFullScreen() {
@@ -99,9 +137,11 @@ final class AppState: ObservableObject {
         if inTransition && Date().timeIntervalSince(transitionStarted) > 4 {
             inTransition = false
         }
-        guard !inTransition else { return }
+        guard !inTransition else { note("BLOCKED inTransition \(state(w))"); return }
+        note("ask  \(state(w))")
         makeOrdinary(w)
         w.makeKeyAndOrderFront(nil)
+        note("made \(state(w))")
         ask(w, want: !w.styleMask.contains(.fullScreen), tries: 0)
     }
 
@@ -111,7 +151,8 @@ final class AppState: ObservableObject {
     /// number — the half second this replaces was right on an idle machine and
     /// wrong on a busy one, which is the exact shape of "sometimes it works".
     private func ask(_ w: NSWindow, want: Bool, tries: Int) {
-        guard tries < 12 else { return }
+        guard tries < 12 else { note("GAVE UP after 12 \(state(w))"); return }
+        if tries > 0 { note("retry \(tries) \(state(w))") }
         accepted = false
         w.toggleFullScreen(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
