@@ -414,6 +414,9 @@ you subscribe again."
                 Ok(c) => c,
                 Err(e) => return text(e),
             };
+            if let Err(e) = client::mentions_reach_someone(&to, &m) {
+                return text(format!("REFUSED: {e}"));
+            }
             match client::send_full(
                 &to,
                 posting_name(session_name).as_deref(),
@@ -447,6 +450,9 @@ you subscribe again."
                 Ok(c) => c,
                 Err(e) => return text(e),
             };
+            if let Err(e) = client::mentions_reach_someone(&to, &summary) {
+                return text(format!("REFUSED: {e}"));
+            }
             match client::send_full(&to, posting_name(session_name).as_deref(), m) {
                 Ok(()) => text(format!("recorded: {action} {target} — {summary}")),
                 Err(e) => text(format!(

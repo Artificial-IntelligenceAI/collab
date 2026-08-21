@@ -3,8 +3,11 @@
 # keeps the server running. Safe to re-run; this is also how you upgrade.
 set -e
 cd "$(dirname "$0")"
-# Both halves, not just the binary — the app is the half that pops.
-[ -f dist.noindex/macos/collab ] && [ -d dist.noindex/macos/Collab.app ] || ./build.sh
+# Always build. Installing only when dist is missing means a source change
+# gets silently ignored — it copies the previous binary, reports success, and
+# the thing you then test is the thing you did not change. Building is cheap
+# and idempotent; being wrong about what is installed is not.
+./build.sh
 
 BIN="$HOME/.local/bin"
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

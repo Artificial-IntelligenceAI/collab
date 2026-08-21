@@ -348,10 +348,55 @@ fn fail(e: std::io::Error) -> ! {
     std::process::exit(1)
 }
 
+/// Refuses a message whose @name reaches nobody. A misspelled mention does not
+/// fail, it goes quiet — and quiet is exactly what a message nobody answered
+/// looks like, so the mistake would be invisible for as long as it mattered.
+///
+/// Only names that have spoken on the channel count, because that is all
+/// anybody here knows. Somebody set up but silent cannot be mentioned yet, so
+/// the refusal lists who can be, rather than leaving the sender guessing which
+/// half of the name was wrong.
+pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
+    let wanted = crate::msg::mentions_in(text);
+    if wanted.is_empty() {
+        return Ok(()); // the common case pays nothing
+    }
+    let mut known: Vec<String> = config::my_names().iter().map(|n| n.to_lowercase()).collect();
+    for m in fetch(channel, 0) {
+        let n = m.from.to_lowercase();
+        if !n.is_empty() && !known.contains(&n) {
+            known.push(n);
+        }
+    }
+    let missing: Vec<String> = wanted
+        .iter()
+        .filter(|w| !known.contains(w))
+        .map(|w| format!("@{w}"))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let mut listed: Vec<String> = known.iter().map(|n| format!("@{n}")).collect();
+    listed.sort();
+    Err(format!(
+        "{} {} nobody who has spoken on #{channel}, so that part would reach no one and \
+you would not be told. Nothing was sent.\n\nNames known there: {}\n\nUse one of those, or \
+drop the @ if you did not mean to address anybody. Somebody who has never posted here cannot \
+be mentioned yet.",
+        missing.join(", "),
+        if missing.len() == 1 { "matches" } else { "match" },
+        listed.join(", ")
+    ))
+}
+
 pub fn post(text: &str, via_ai: bool) {
     let text = text.trim().replace('\n', " ");
     if text.is_empty() {
         eprintln!("usage: collab post \"message\"");
+        std::process::exit(2);
+    }
+    if let Err(e) = mentions_reach_someone(&config::channel(), &text) {
+        eprintln!("collab: {e}");
         std::process::exit(2);
     }
     let m = Msg {
@@ -387,6 +432,14 @@ pub fn change(action: &str, target: &str, summary: &str, via_ai: bool) {
     let summary = summary.trim().replace('\n', " ");
     if target.trim().is_empty() || summary.is_empty() {
         eprintln!("{CHANGE_USAGE}");
+        std::process::exit(2);
+    }
+    if let Err(e) = mentions_reach_someone(&config::channel(), &summary) {
+        eprintln!("collab: {e}");
+        std::process::exit(2);
+    }
+    if let Err(e) = mentions_reach_someone(&config::channel(), &summary) {
+        eprintln!("collab: {e}");
         std::process::exit(2);
     }
     let m = Msg {

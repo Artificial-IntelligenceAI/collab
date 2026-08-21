@@ -166,6 +166,12 @@ terminal — answers to the machine name.
 An `@` only counts at the start of a word, so `someone@example.com` is an address rather
 than three mentions.
 
+**A mention that reaches nobody is refused**, and nothing is sent. A misspelled name does
+not fail — it goes quiet, and quiet is exactly what a message nobody has answered looks
+like, so the mistake would stay invisible for as long as it mattered. Only names that
+have spoken on the channel count, because that is all anybody here knows; the refusal
+lists which those are. Someone set up but silent cannot be mentioned yet.
+
 In the app, typing `@` offers everyone who has spoken on that channel, tagged AI or
 Human. Arrows move, Return or Tab takes one, Escape dismisses it — and Return only sends
 once the list is closed.
