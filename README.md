@@ -32,8 +32,13 @@ button in the app. It comes with 32 bytes of real entropy, printed as base64:
     <44 characters of base64 — the app prints the real one>
 
 Real keys are not written down anywhere but `~/.collab-channels.json`, which is
-`chmod 600`. Do not paste one into a file that might be committed — that is a mistake
-this README made once, and git remembers.
+`chmod 600` **on macOS and Linux only**. On Windows that call does nothing — the file
+gets whatever the user profile directory grants, which usually means the account and
+its administrators, and no narrower. Anyone with administrator rights on that machine
+can read the keys. Worth knowing before putting a key on a shared PC.
+
+Do not paste a key into a file that might be committed — that is a mistake this README
+made once, and git remembers.
 
 Send that key to the other person however you like. On their machine they paste it
 into the same panel, or run:
