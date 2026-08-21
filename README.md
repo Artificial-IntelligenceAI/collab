@@ -165,7 +165,10 @@ anything addressed to its owner. Anything with no chat name of its own — the a
 terminal — answers to the machine name.
 
 An `@` only counts at the start of a word, so `someone@example.com` is an address rather
-than three mentions.
+than three mentions. To write *about* a name rather than to it, put it in backticks or
+double the at-sign — `` `@name` `` and `@@name` both address nobody. Without that, the one
+message a channel could never accept was the message explaining why a name does not work
+on it.
 
 `collab users` lists them, and `collab_users` is the same thing for an AI. There is no
 register of members — a channel is a key, and holding it is all it takes — so this is

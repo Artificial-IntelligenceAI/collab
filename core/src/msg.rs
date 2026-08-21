@@ -161,24 +161,40 @@ impl Msg {
 /// line, so an email address does not read as three mentions.
 pub fn mentions_in(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for (i, _) in text.match_indices('@') {
-        let preceded_ok = i == 0
-            || text[..i]
-                .chars()
-                .last()
-                .map(|c| !c.is_alphanumeric())
-                .unwrap_or(true);
-        if !preceded_ok {
+    let chars: Vec<char> = text.chars().collect();
+    let mut in_code = false;
+    let mut i = 0;
+    while i < chars.len() {
+        // Inside backticks you are quoting a name, not calling one. Without
+        // this, the one message a channel cannot accept is the message
+        // explaining why a name does not work on that channel.
+        if chars[i] == '`' {
+            in_code = !in_code;
+            i += 1;
             continue;
         }
-        let name: String = text[i + 1..]
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
-            .collect();
-        let name = name.trim_end_matches(['.', '/']).to_lowercase();
-        if !name.is_empty() && !out.contains(&name) {
-            out.push(name);
+        if chars[i] == '@' && !in_code {
+            // A name must follow a space or start the line, so an email address
+            // is an address; and @@name is how you write a literal one.
+            let prev_ok = i == 0 || (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '@');
+            if prev_ok {
+                let mut j = i + 1;
+                let mut name = String::new();
+                while j < chars.len()
+                    && (chars[j].is_alphanumeric() || matches!(chars[j], '-' | '_' | '.' | '/'))
+                {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                let name = name.trim_end_matches(['.', '/']).to_lowercase();
+                if !name.is_empty() && !out.contains(&name) {
+                    out.push(name);
+                }
+                i = j;
+                continue;
+            }
         }
+        i += 1;
     }
     out
 }

@@ -458,8 +458,9 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
     Err(format!(
         "{} {} nobody who has spoken on #{channel}, so that part would reach no one and \
 you would not be told. Nothing was sent.\n\nNames known there: {}\n\nUse one of those, or \
-drop the @ if you did not mean to address anybody. Somebody who has never posted here cannot \
-be mentioned yet.",
+drop the @ if you did not mean to address anybody. To write *about* a name rather than to it, \
+put it in backticks or double the at-sign: `@name` or @@name. Somebody who has never posted \
+here cannot be mentioned yet.",
         missing.join(", "),
         if missing.len() == 1 { "matches" } else { "match" },
         listed.join(", ")
