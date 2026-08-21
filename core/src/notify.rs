@@ -39,10 +39,24 @@ pub fn find_notifier() -> Option<PathBuf> {
             candidates.push(base.join("Collab.app"));
         }
     } else if cfg!(target_os = "windows") {
+        // The standalone helper first, because that is the path verified to
+        // work end to end. The app can raise a toast too — it takes --toast and
+        // exits without a window — and asking it would let the 94 MB helper go,
+        // the way Collab.app serves the command line on the Mac. That ordering
+        // was swapped and not verified before the machine went to sleep, so it
+        // waits: an unverified notifier is worse than a large one.
         candidates.push(dir.join("collab-notify.exe"));
         candidates.push(dir.join("notify/collab-notify.exe"));
+        candidates.push(dir.join("..").join("Collab.exe"));
     }
-    candidates.into_iter().find(|p| p.exists())
+    // Never point at ourselves. Windows filenames are case-insensitive, so
+    // `Collab.exe` beside the command line matches `collab.exe` — the CLI would
+    // find itself, run itself with --toast and a pile of arguments it does not
+    // understand, and no toast would ever appear.
+    let me = std::fs::canonicalize(std::env::current_exe().unwrap_or_default()).ok();
+    candidates.into_iter().find(|p| {
+        p.exists() && std::fs::canonicalize(p).ok() != me
+    })
 }
 
 /// Hands a request to the app — the only thing here allowed to raise one.
@@ -167,7 +181,16 @@ fn raise(
     // The last arguments are what a click needs: where the window is, what to
     // run to open it, and which channel the message came from.
     let self_path = std::env::current_exe().unwrap_or_default();
-    let out = Command::new(helper)
+    // The app takes a flag so it knows not to open a window; the helper only
+    // ever did one thing and takes none.
+    let is_app = helper
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("Collab.exe"));
+    let mut cmd = Command::new(helper);
+    if is_app {
+        cmd.arg("--toast");
+    }
+    let out = cmd
         .args([
             title,
             body,

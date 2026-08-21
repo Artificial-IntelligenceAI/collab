@@ -32,6 +32,11 @@ if rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu; t
 else
   echo "  SKIPPED collab.exe — run: rustup target add x86_64-pc-windows-gnu && brew install mingw-w64" >&2
 fi
+if app/windows/build.sh "$PWD/dist.noindex/windows" >/dev/null 2>&1; then
+  echo "  built dist.noindex/windows/Collab.exe"
+else
+  echo "  SKIPPED Collab.exe — needs: brew install dotnet" >&2
+fi
 if notify/windows/build.sh "$PWD/dist.noindex/windows" >/dev/null 2>&1; then
   echo "  built dist.noindex/windows/collab-notify.exe"
 else
