@@ -256,7 +256,13 @@ fn watch_one(
         // own are dropped — a sibling chat on the same machine is someone else,
         // and worth hearing. The place in the sequence still advances, so a
         // resume after this is still exact.
-        let mine = m.via == crate::msg::ACTOR_AI
+        // Both of these are about not interrupting a chat, so neither applies
+        // when somebody has asked for the whole channel. `-all` is the window,
+        // and a window that hides messages is not a record. The mention filter
+        // was fixed for this and its twin was left behind, which is how the app
+        // came to hide every message this chat had sent.
+        let mine = !all
+            && m.via == crate::msg::ACTOR_AI
             && m.host == host
             && config::session_name().is_some_and(|n| n == m.from);
         // A message addressed to somebody else should not interrupt this chat.
@@ -265,6 +271,7 @@ fn watch_one(
         // people is not a record of the channel. An @name narrows who is told,
         // never who may look, and dropping it here broke exactly that.
         let addressed_elsewhere = !all && !m.is_for(&config::my_names());
+
         cursor.store(m.seq, SeqCst);
         if save {
             save_seen_for(channel, m.seq, &mut warned);

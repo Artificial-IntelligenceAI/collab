@@ -246,6 +246,10 @@ final class Core: ObservableObject {
         p.arguments = ["watch", "-json", "-all", "-since", "0", "-no-save"]
         var env = ProcessInfo.processInfo.environment
         env["COLLAB_NOTIFY"] = "0"
+        // The app is not a chat and must not inherit one's identity. Launched
+        // from a terminal that had a session id, it would take that chat's name
+        // and start treating that chat's messages as its own echo.
+        env["CLAUDE_CODE_SESSION_ID"] = nil
         p.environment = env
 
         let pipe = Pipe()
