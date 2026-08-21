@@ -132,6 +132,16 @@ pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
         Err(_) => return Err("that key is not valid base64".into()),
     }
     let mut reg = load();
+    // A channel is identified by its key and named locally, so the same key
+    // added twice makes two names for one room. The server finds a channel by
+    // trial-decrypting, takes whichever name it meets first, and messages then
+    // arrive on a channel nobody addressed — a post to #window landing on
+    // #tankun is how this was found. One name per key.
+    if let Some((held, _)) = reg.iter().find(|(n, c)| c.key == key && **n != name) {
+        return Err(format!(
+            "this machine already holds that key as #{held}. A channel is its key — adding it again under another name makes two names for one room, and messages then turn up on whichever name was found first.\n\n  to rename it: collab channel forget {held}, then add it again as #{name}"
+        ));
+    }
     reg.insert(
         name.clone(),
         Channel {
