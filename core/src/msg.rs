@@ -42,6 +42,13 @@ pub struct Msg {
     pub host: String,
     #[serde(default)]
     pub text: String,
+    /// Who this is aimed at, from the @names in the text. Empty means everyone.
+    /// It narrows who is *told*, never who can read it: the channel is a shared
+    /// record, and a mention that hid the message would put private side-talk
+    /// inside something two people rely on being complete.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub to: Vec<String>,
+
     /// file only: what was sent, by name, size and hash. The bytes are not
     /// here — they are in the store, fetched when somebody actually wants them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -97,6 +104,17 @@ impl Msg {
         }
     }
 
+    /// Whether this message should interrupt somebody answering to any of
+    /// these names. Unaddressed messages are for everyone.
+    pub fn is_for(&self, names: &[String]) -> bool {
+        if self.to.is_empty() {
+            return true;
+        }
+        names
+            .iter()
+            .any(|n| self.to.iter().any(|t| t == &n.to_lowercase()))
+    }
+
     /// The machine, when it is not already obvious from the name.
     pub fn machine(&self) -> Option<&str> {
         if self.host.is_empty() || self.who().contains(&self.host) {
@@ -137,6 +155,32 @@ impl Msg {
             "--:--"
         }
     }
+}
+
+/// Pulls @names out of a message. A name must follow a space or start the
+/// line, so an email address does not read as three mentions.
+pub fn mentions_in(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (i, _) in text.match_indices('@') {
+        let preceded_ok = i == 0
+            || text[..i]
+                .chars()
+                .last()
+                .map(|c| !c.is_alphanumeric())
+                .unwrap_or(true);
+        if !preceded_ok {
+            continue;
+        }
+        let name: String = text[i + 1..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+            .collect();
+        let name = name.trim_end_matches(['.', '/']).to_lowercase();
+        if !name.is_empty() && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
 }
 
 pub fn now() -> String {

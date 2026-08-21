@@ -89,6 +89,18 @@ pub fn hostname() -> String {
 pub fn name() -> String {
     env("COLLAB_NAME", &hostname())
 }
+/// The name to answer to. A chat that has named itself answers to that and not
+/// to the machine it runs on — the whole reason chats have their own names is
+/// that "@tankun" means the person, not whichever of their sessions happens to
+/// be listening. Anything without a chat name is the person, and answers to the
+/// machine name.
+pub fn my_names() -> Vec<String> {
+    match session_name() {
+        Some(n) => vec![n],
+        None => vec![name()],
+    }
+}
+
 pub fn channel() -> String {
     env("COLLAB_CHANNEL", "general")
 }

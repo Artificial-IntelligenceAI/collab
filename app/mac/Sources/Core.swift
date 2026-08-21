@@ -33,10 +33,19 @@ struct Msg: Codable, Identifiable, Hashable {
     /// Set when this is a file. The bytes are not here — they are fetched when
     /// somebody actually wants them.
     var file: FileRef?
+    /// Who it is aimed at, from the @names in it. Empty means everyone. It
+    /// narrows who is told, never who can read it.
+    var to: [String]?
 
     var id: Int64 { seq }
     var isChange: Bool { kind == "change" }
     var isFile: Bool { kind == "file" }
+
+    /// Whether this should interrupt somebody answering to `name`.
+    func isFor(_ name: String) -> Bool {
+        guard let to, !to.isEmpty else { return true }
+        return to.contains(name.lowercased())
+    }
     var isAI: Bool { via == "ai" }
 
     /// "AI" or "Human" — what the badge says.
@@ -126,6 +135,20 @@ final class Core: ObservableObject {
     var onArrival: (([Msg], Bool) -> Void)?
     private var pending: [Msg] = []
     private var settleTimer: Timer?
+
+    /// Names that can be mentioned on a channel: everyone who has spoken there,
+    /// yourself excluded — you do not need telling about your own messages.
+    /// Each carries whether it was a person or an AI, so the list says what it
+    /// is offering rather than just a word.
+    func mentionable(on channel: String?) -> [(name: String, isAI: Bool)] {
+        var seen: [String: Bool] = [:]
+        for m in messages where channel == nil || m.channel == channel {
+            if m.from.isEmpty || m.from.caseInsensitiveCompare(me) == .orderedSame { continue }
+            seen[m.from] = m.isAI
+        }
+        return seen.map { (name: $0.key, isAI: $0.value) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
 
     /// Whether this machine is the one running the server. A channel only
     /// exists as far as the server is concerned, so a channel made anywhere

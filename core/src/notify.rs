@@ -128,6 +128,10 @@ impl Notifier {
                         {
                             continue;
                         }
+                        // Addressed to somebody else: still delivered, not announced.
+                        if !m.is_for(&config::my_names()) {
+                            continue;
+                        }
                         pending.push(m);
                     }
                     Err(RecvTimeoutError::Timeout) => {

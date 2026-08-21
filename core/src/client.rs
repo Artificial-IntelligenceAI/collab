@@ -202,7 +202,7 @@ pub fn watch(as_json: bool, popups: bool, since: Option<i64>, save: bool, all: b
             std::thread::spawn(move || {
                 let mine = name.clone();
                 let still = move || desired(all).contains(&mine);
-                watch_one(&name, start, save, as_json, popups, &still);
+                watch_one(&name, start, save, as_json, popups, all, &still);
                 running.lock().unwrap().remove(&name);
             });
         }
@@ -240,6 +240,7 @@ fn watch_one(
     save: bool,
     as_json: bool,
     popups: bool,
+    all: bool,
     still_wanted: &dyn Fn() -> bool,
 ) {
     let mut warned = false;
@@ -258,11 +259,17 @@ fn watch_one(
         let mine = m.via == crate::msg::ACTOR_AI
             && m.host == host
             && config::session_name().is_some_and(|n| n == m.from);
+        // A message addressed to somebody else should not interrupt this chat.
+        // But `-all` is somebody asking for the whole channel — the window is
+        // built from it, and a window that hides messages addressed to other
+        // people is not a record of the channel. An @name narrows who is told,
+        // never who may look, and dropping it here broke exactly that.
+        let addressed_elsewhere = !all && !m.is_for(&config::my_names());
         cursor.store(m.seq, SeqCst);
         if save {
             save_seen_for(channel, m.seq, &mut warned);
         }
-        if mine {
+        if mine || addressed_elsewhere {
             return;
         }
         if as_json {

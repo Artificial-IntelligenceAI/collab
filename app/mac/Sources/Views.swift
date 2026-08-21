@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var sendError: String?
     @State private var note: String?
     @State private var pickedInitial = false
+    @State private var mentionPick = 0
 
     /// You post where you are looking. Reading one channel and typing into
     /// another would be a nasty little trap.
@@ -128,13 +129,66 @@ struct ContentView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
+            if !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(suggestions.enumerated()), id: \.element.name) { i, s in
+                        HStack(spacing: 7) {
+                            Text("@" + s.name)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Sol.forName(s.name))
+                            Text(s.isAI ? "AI" : "Human")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .overlay(RoundedRectangle(cornerRadius: 3)
+                                    .stroke(s.isAI ? Sol.forName(s.name) : Sol.fgDim, lineWidth: 1))
+                                .foregroundStyle(s.isAI ? Sol.forName(s.name) : Sol.fgDim)
+                                .opacity(0.7)
+                            Spacer()
+                            if i == mentionPick {
+                                Text("↩").font(.system(size: 10)).foregroundStyle(Sol.fgDim)
+                            }
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(i == mentionPick ? Sol.bg : Color.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { accept(s.name) }
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 8).fill(Sol.bgAlt))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Sol.rule, lineWidth: 1))
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
+                .frame(maxWidth: 320, alignment: .leading)
+            }
             Divider().overlay(Sol.rule)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .bottom, spacing: 9) {
                     TextField("Say something on #\(postChannel)…", text: $draft, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...5)
-                        .onSubmit(send)
+                        .onSubmit { if suggestions.isEmpty { send() } }
+                        // While the list is open Return takes the highlighted
+                        // name instead of sending, which is what makes it feel
+                        // like a suggestion rather than an obstacle.
+                        .onKeyPress { press in
+                            guard !suggestions.isEmpty else { return .ignored }
+                            switch press.key {
+                            case .downArrow:
+                                mentionPick = min(mentionPick + 1, suggestions.count - 1)
+                                return .handled
+                            case .upArrow:
+                                mentionPick = max(mentionPick - 1, 0)
+                                return .handled
+                            case .return, .tab:
+                                accept(suggestions[min(mentionPick, suggestions.count - 1)].name)
+                                return .handled
+                            case .escape:
+                                draft += " "
+                                return .handled
+                            default:
+                                return .ignored
+                            }
+                        }
                     Button("Send", action: send)
                         .buttonStyle(.borderedProminent)
                         .tint(Sol.blue)
@@ -152,6 +206,31 @@ struct ContentView: View {
 
     /// Waits for the real settings before choosing what to show. Doing this on
     /// appear alone captured the placeholder channel and stuck to it.
+    /// The @word being typed right now, if the cursor is still inside one.
+    /// Anything with a space in it has stopped being a mention.
+    private var mentionQuery: String? {
+        guard let at = draft.lastIndex(of: "@") else { return nil }
+        let after = draft[draft.index(after: at)...]
+        if after.contains(" ") || after.contains("\n") { return nil }
+        let before = at == draft.startIndex
+            ? true
+            : !(draft[draft.index(before: at)].isLetter || draft[draft.index(before: at)].isNumber)
+        return before ? String(after) : nil
+    }
+
+    private var suggestions: [(name: String, isAI: Bool)] {
+        guard let q = mentionQuery else { return [] }
+        let all = core.mentionable(on: channel)
+        guard !q.isEmpty else { return Array(all.prefix(6)) }
+        return Array(all.filter { $0.name.lowercased().hasPrefix(q.lowercased()) }.prefix(6))
+    }
+
+    private func accept(_ name: String) {
+        guard let at = draft.lastIndex(of: "@") else { return }
+        draft = String(draft[..<at]) + "@" + name + " "
+        mentionPick = 0
+    }
+
     private func adoptHomeChannel() {
         guard !pickedInitial, core.settingsLoaded else { return }
         channel = core.homeChannel
@@ -332,6 +411,7 @@ struct ActionBadge: View {
 struct ChatList: View {
     let messages: [Msg]
     let query: String
+    @EnvironmentObject private var core: Core
 
     var body: some View {
         if messages.isEmpty {
@@ -372,7 +452,9 @@ struct ChatList: View {
                 Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
                 Text("— " + m.text).foregroundStyle(Sol.fgEm)
             } else {
-                Text(m.text).foregroundStyle(Sol.fg).textSelection(.enabled)
+                Text(mentionMarkup(m.text, me: core.me))
+                    .foregroundStyle(Sol.fg)
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 0)
         }
@@ -383,6 +465,23 @@ struct ChatList: View {
     private func sameDay(_ a: Date, _ b: Date) -> Bool {
         Calendar.current.isDate(a, inSameDayAs: b)
     }
+}
+
+/// Colours the @names in a message, and makes the one aimed at you stand out —
+/// a mention you have to hunt for is not much of a mention.
+func mentionMarkup(_ text: String, me: String) -> AttributedString {
+    var out = AttributedString(text)
+    for word in text.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+        guard word.hasPrefix("@"), word.count > 1 else { continue }
+        let name = word.dropFirst().lowercased()
+            .trimmingCharacters(in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./")).inverted)
+        guard let r = out.range(of: String(word)) else { continue }
+        let mine = !me.isEmpty && name == me.lowercased()
+        out[r].foregroundColor = mine ? Sol.onAccent : Sol.blue
+        out[r].font = .system(size: 13, weight: .semibold)
+        if mine { out[r].backgroundColor = Sol.blue }
+    }
+    return out
 }
 
 struct DaySeparator: View {

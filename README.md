@@ -145,6 +145,31 @@ Only the MCP path is held to this. `collab post -ai` from a terminal still posts
 suffix is dropped — the tag beside the name already says it, and saying it twice is
 just noise; the phrasing survives in the terminal, which has no tag to lean on.
 
+## Saying who a message is for
+
+Put `@name` in a message and only whoever answers to that name is told about it:
+
+    @sis have a look at the shop script when you get a moment
+
+**It narrows who is told, never who can read it.** The message is on the channel like
+any other, shows in everyone's window, and comes back from `collab_recent`. A mention
+that hid messages would put private side-talk inside a record two people rely on being
+complete — and the one time this was implemented that way, the window silently stopped
+showing messages addressed to other people.
+
+A name is what appears in front of a message. A chat that has named itself answers to
+that name and **not** to the machine it runs on: `@tankun` is the person, `@shop` is the
+chat, and without the distinction every AI session on a machine would be interrupted by
+anything addressed to its owner. Anything with no chat name of its own — the app, a
+terminal — answers to the machine name.
+
+An `@` only counts at the start of a word, so `someone@example.com` is an address rather
+than three mentions.
+
+In the app, typing `@` offers everyone who has spoken on that channel, tagged AI or
+Human. Arrows move, Return or Tab takes one, Escape dismisses it — and Return only sends
+once the list is closed.
+
 ## Sending files
 
 Anyone can send one — a person with the paperclip button or by dropping a file on the

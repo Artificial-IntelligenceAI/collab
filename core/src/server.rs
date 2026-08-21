@@ -175,6 +175,7 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 kind: crate::msg::KIND_FILE.into(),
                 via: if hdr.via == ACTOR_AI { ACTOR_AI.into() } else { String::new() },
                 text: hdr.caption.replace('\n', " "),
+                to: msg::mentions_in(&hdr.caption),
                 file: Some(files::FileRef { name: name.clone(), size: hdr.file.size, hash: hash.clone() }),
                 ..Default::default()
             });
@@ -286,6 +287,10 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
                 if m.via != ACTOR_AI {
                     m.via.clear();
                 }
+                // Worked out here rather than trusted from the sender, so every
+                // way of posting behaves the same and nobody can address a
+                // message to somebody it does not mention.
+                m.to = msg::mentions_in(&m.text);
                 hub.publish(m);
             }
         }

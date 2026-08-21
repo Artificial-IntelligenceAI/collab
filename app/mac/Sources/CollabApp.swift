@@ -107,7 +107,12 @@ enum Notifier {
         // Your own words do not need announcing back to you — but your own
         // AI's do. A name belongs to a machine, so without the second test
         // this would also silence the assistant sitting next to you.
-        let worth = batch.filter { $0.isAI || $0.from.caseInsensitiveCompare(me) != .orderedSame }
+        // Your own words are not announced back at you, and neither is a
+        // message plainly addressed to somebody else — it is still in the
+        // window, it just does not interrupt.
+        let worth = batch.filter {
+            ($0.isAI || $0.from.caseInsensitiveCompare(me) != .orderedSame) && $0.isFor(me)
+        }
         guard !worth.isEmpty else { return }
 
         let content = UNMutableNotificationContent()
