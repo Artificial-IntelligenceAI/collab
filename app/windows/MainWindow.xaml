@@ -48,7 +48,8 @@
 
         <StackPanel Grid.Column="2">
           <!-- plain text -->
-          <TextBlock Text="{Binding Text}" Foreground="{Binding TextBrush}" TextWrapping="Wrap"
+          <TextBlock local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
+                     TextWrapping="Wrap"
                      Visibility="{Binding IsChat, Converter={StaticResource Show}}"/>
           <!-- a change entry -->
           <StackPanel Orientation="Horizontal"
@@ -61,7 +62,8 @@
             <StackPanel>
               <TextBlock Text="{Binding Target}" Foreground="{Binding EmBrush}"
                          FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
-              <TextBlock Text="{Binding Text}" Foreground="{Binding TextBrush}" TextWrapping="Wrap"/>
+              <TextBlock local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
+                         TextWrapping="Wrap"/>
             </StackPanel>
           </StackPanel>
           <!-- a file: a card, because it is a thing you act on -->
