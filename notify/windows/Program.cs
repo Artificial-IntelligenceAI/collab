@@ -132,13 +132,17 @@ internal static class Program
         IntPtr variant = IntPtr.Zero;
         try
         {
-            Check(InitPropVariantFromStringAlloc(Aumid, out variant));
+            variant = MakeStringPropVariant(Aumid);
             store.SetValue(ref key, variant);
             store.Commit();
         }
         finally
         {
-            if (variant != IntPtr.Zero) PropVariantClear(variant);
+            if (variant != IntPtr.Zero)
+            {
+                PropVariantClear(variant);      // frees the string inside
+                Marshal.FreeCoTaskMem(variant); // then the struct itself
+            }
         }
         ((IPersistFile)link).Save(path, true);
     }
@@ -147,8 +151,27 @@ internal static class Program
 
     // ── the COM bits Windows needs to write a shortcut ─────────
 
-    [DllImport("propsys.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
-    private static extern int InitPropVariantFromStringAlloc(string psz, out IntPtr ppropvar);
+    /// A PROPVARIANT holding a string, built by hand.
+    ///
+    /// This used to call InitPropVariantFromStringAlloc in propsys.dll, which
+    /// is not an export of it — the InitPropVariantFrom* helpers are inline
+    /// functions in propvarutil.h. C# does not check that a DllImport resolves
+    /// until it is called, so it compiled cleanly on the Mac and failed on
+    /// Windows with "Entry point was not found", which is why notifications
+    /// had never worked anywhere.
+    ///
+    /// Layout: VARTYPE at 0, three reserved words, then the pointer at the
+    /// first pointer-aligned offset. PropVariantClear frees the string.
+    private static IntPtr MakeStringPropVariant(string value)
+    {
+        const short VT_LPWSTR = 31;
+        int size = IntPtr.Size == 8 ? 16 : 8;
+        IntPtr pv = Marshal.AllocCoTaskMem(size);
+        for (int i = 0; i < size; i++) Marshal.WriteByte(pv, i, 0);
+        Marshal.WriteInt16(pv, 0, VT_LPWSTR);
+        Marshal.WriteIntPtr(pv, IntPtr.Size, Marshal.StringToCoTaskMemUni(value));
+        return pv;
+    }
 
     [DllImport("ole32.dll", PreserveSig = true)]
     private static extern int PropVariantClear(IntPtr pvar);
