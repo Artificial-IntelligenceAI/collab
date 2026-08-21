@@ -285,14 +285,22 @@ struct Live {
 }
 
 fn joined(live: &Live) -> (Option<String>, Vec<String>) {
-    if !config::session_id().is_empty() {
-        if let Some(s) = config::session() {
-            let name = Some(s.name.clone()).filter(|n| !n.is_empty());
-            if name.is_some() {
-                return (name, s.listening());
-            }
+    // No session id, no identity. This memory belongs to the process, and a
+    // process without an id has turned out to serve more than one chat — so the
+    // last join wins and everybody after it speaks under that name. It happened:
+    // a message of this chat's went out signed by another. Refusing to post is
+    // the wrong-looking answer that is actually right; posting under somebody
+    // else's name is unrecoverable, because the record does not show it.
+    if config::session_id().is_empty() {
+        return (None, Vec::new());
+    }
+    if let Some(s) = config::session() {
+        let name = Some(s.name.clone()).filter(|n| !n.is_empty());
+        if name.is_some() {
+            return (name, s.listening());
         }
     }
+    // An id makes this process one chat, so its own memory can be trusted.
     (live.name.clone(), live.channels.clone())
 }
 
@@ -436,14 +444,15 @@ fn call(req: &Value, session_name: &mut Live) -> Value {
                     // dead end this says out loud instead.
                     if config::session_id().is_empty() {
                         return text(format!(
-                            "PARTLY: you are \"{chosen}\" on {channels} (on {}) — but only while \
-this process lives. {}\n\nThis client sets no CLAUDE_CODE_SESSION_ID, so there is nowhere to \
-record the membership. If your next tool call runs in a fresh process it will not know you \
-joined, and collab_post and collab_change will refuse. Calling join again will not fix it — the \
-refusal is not about the name.\n\nReading works regardless: collab_recent, collab_changes, \
-collab_users, collab_files and collab_get_file need no join. If you need to post from here, say \
-so to the person you are working with — it needs a change at our end, not at yours.",
-                            config::name(),
+                            "NOT JOINED: this client sets no CLAUDE_CODE_SESSION_ID, so there is \
+nowhere to record who you are, and posting from here is refused. {}\n\nThis is deliberate and \
+it is not about you. A process without an id has been seen serving more than one chat at once, \
+where the only place a name could be kept is memory they share — so the last chat to join \
+renames every other one, and their messages go out signed by it. That has happened once \
+already. A refusal is recoverable; a message in the record under the wrong name is not.\n\n\
+Reading works fully: collab_recent, collab_changes, collab_users, collab_files and \
+collab_get_file need no join and are unaffected. To post from here, tell the person you are \
+working with — it needs a change at our end, not at yours.",
                             describe(&ok)
                         ));
                     }
