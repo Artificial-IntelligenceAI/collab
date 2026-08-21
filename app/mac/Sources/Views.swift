@@ -100,6 +100,11 @@ struct ContentView: View {
 
             // Making a channel is a person's job, so it lives behind a button
             // and not behind a tool.
+            Button { AppState.shared.toggleFullScreen() } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .help("Full screen (⌃⌘F)")
+
             Button { pickFile() } label: {
                 Image(systemName: "paperclip")
             }

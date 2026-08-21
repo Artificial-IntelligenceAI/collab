@@ -18,6 +18,33 @@ final class AppState: ObservableObject {
     /// conversation rather than the app in general.
     @Published var requestedChannel: String?
 
+    /// A menu bar app has no View menu to put "Enter Full Screen" in, and a
+    /// window does not offer it unless it is told it may — so it is asked for
+    /// here, from the menu bar and from a button in the window itself.
+    func toggleFullScreen() {
+        // macOS will not give native full screen to an accessory app, and this
+        // is one so that it lives in the menu bar without a Dock icon. Becoming
+        // a regular app for as long as the window is up is the price; it drops
+        // back when the window closes.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        guard let w = mainWindow() else {
+            openMainWindow?()
+            return
+        }
+        w.makeKeyAndOrderFront(nil)
+        // The policy change has to reach the window server before the window
+        // will accept going full screen; asking too soon promotes the app and
+        // does nothing else, which looks exactly like the feature not working.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            (self.mainWindow() ?? w).toggleFullScreen(nil)
+        }
+    }
+
+    func mainWindow() -> NSWindow? {
+        NSApp.windows.first { $0.canBecomeMain && $0.title == "collab" }
+    }
+
     func showWindow() {
         NSApp.activate(ignoringOtherApps: true)
         if let open = openMainWindow {
@@ -30,6 +57,10 @@ final class AppState: ObservableObject {
 
 final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification, object: nil)
+
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -63,6 +94,8 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 c.sound = .default
                 UNUserNotificationCenter.current().add(
                     UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+            case "fullscreen":
+                Task { @MainActor in AppState.shared.toggleFullScreen() }
             case "open":
                 let wanted = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first(where: { $0.name == "channel" })?.value
@@ -78,6 +111,19 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool {
         false // closing the window is not quitting; the popups carry on
+    }
+
+    /// Going full screen turns this into a regular app, because macOS will not
+    /// give full screen to a menu bar one. Closing the window puts it back —
+    /// otherwise a single use of full screen would leave a Dock icon behind for
+    /// the rest of the session, which is not what a menu bar app is for.
+    @objc func windowWillClose(_ note: Notification) {
+        guard let w = note.object as? NSWindow, w.title == "collab" else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            if NSApp.windows.first(where: { $0.title == "collab" && $0.isVisible }) == nil {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 
     /// A click should land where the message came from — the way clicking a
@@ -156,6 +202,7 @@ struct CollabApp: App {
             ContentView(core: state.core)
                 .environmentObject(state.core)
                 .frame(minWidth: 720, minHeight: 420)
+                .background(WindowCapability())
         }
         .defaultSize(width: 1000, height: 640)
 
@@ -187,6 +234,8 @@ struct MenuContent: View {
     var body: some View {
         Button("Open collab") { AppState.shared.showWindow() }
             .keyboardShortcut("o")
+        Button("Full Screen") { AppState.shared.toggleFullScreen() }
+            .keyboardShortcut("f", modifiers: [.control, .command])
         Button("Check for Updates…") { Updater.checkForUpdates() }
         Divider()
         if let fatal = core.fatal {
@@ -201,4 +250,21 @@ struct MenuContent: View {
         Button("Quit collab") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
+}
+
+
+/// Reaches the NSWindow behind the SwiftUI scene to say it may go full screen.
+/// Without fullScreenPrimary the green button only zooms, and in an app with no
+/// menu bar there is nothing else offering it.
+struct WindowCapability: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async {
+            guard let w = v.window else { return }
+            w.collectionBehavior.insert(.fullScreenPrimary)
+            w.styleMask.insert(.resizable)
+        }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

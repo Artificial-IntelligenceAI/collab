@@ -239,6 +239,10 @@ is a window you will close.
   switch the picker and the composer follows, because reading one channel and
   typing into another would be a nasty little trap.
 - Solarized, light and dark, following the OS.
+- **Full screen** from the menu bar item, ⌃⌘F, or the button in the window. macOS will
+  not give full screen to a menu bar app, so collab becomes an ordinary app for as long
+  as the window is open — a Dock icon appears — and goes back to living only in the menu
+  bar when you close it.
 
 Notifications are the app's, not the command line's — macOS attributes a
 notification to a bundle's main executable, so the CLI cannot raise one and a second
