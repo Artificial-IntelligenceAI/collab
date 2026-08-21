@@ -118,13 +118,6 @@ pub fn my_names_on(channel: &str) -> Vec<String> {
     }
 }
 
-pub fn my_names() -> Vec<String> {
-    match session_name() {
-        Some(n) => vec![n],
-        None => vec![name()],
-    }
-}
-
 pub fn channel() -> String {
     env("COLLAB_CHANNEL", "general")
 }

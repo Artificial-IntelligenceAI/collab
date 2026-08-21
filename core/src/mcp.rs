@@ -592,7 +592,7 @@ you subscribe again."
                     };
                     out.push_str(&format!(
                         "  @{} — {}{}, {} message(s), last at {at}\n",
-                        u.name,
+                        crate::msg::addressable(&u.name),
                         if u.is_ai { "AI" } else { "Human" },
                         host,
                         u.messages

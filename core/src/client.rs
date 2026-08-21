@@ -37,22 +37,39 @@ pub fn seen_for(channel: &str) -> i64 {
 /// Losing our place is not allowed to be quiet either: if we cannot write it
 /// down we would replay a channel's whole history on the next reconnect and
 /// never say why.
+/// One watcher runs a thread per channel and they all write this file. The
+/// read-modify-write has to be one operation or two threads racing lose each
+/// other's places.
+static SEEN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn save_seen_for(channel: &str, n: i64, warned: &mut bool) {
+    let _guard = SEEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut map = seen_map();
     map.insert(channel.to_string(), n);
     let path = config::home(".collab-seen.json");
+    // Written through a rename. std::fs::write truncates first, and seen_map()
+    // reads an unparseable file as an empty map — so a thread reading during
+    // another's write would find nothing, then save only its own channel and
+    // destroy every other marker. That is not a stale place in the sequence,
+    // it is a full replay of every other channel, and it happened twice
+    // tonight on two different machines.
+    let tmp = config::home(".collab-seen.json.tmp");
     let ok = serde_json::to_string(&map)
         .ok()
-        .and_then(|t| std::fs::write(&path, t).ok())
+        .and_then(|t| std::fs::write(&tmp, t).ok())
+        .and_then(|_| std::fs::rename(&tmp, &path).ok())
         .is_some();
     if ok {
         config::lock_down(&path);
-    } else if !*warned {
-        *warned = true;
-        eprintln!(
-            "* cannot record my place in {} — after a reconnect you may see old messages again",
-            path.display()
-        );
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+        if !*warned {
+            *warned = true;
+            eprintln!(
+                "* cannot record my place in {} — after a reconnect you may see old messages again",
+                path.display()
+            );
+        }
     }
 }
 
@@ -494,6 +511,9 @@ pub fn users_cmd(channel: Option<&str>, all: bool) {
             continue;
         }
         for u in users {
+            // The spellable form. This list is read to find out what to type,
+            // and a name with a gap in it cannot be written as a mention.
+            let name = crate::msg::addressable(&u.name);
             let kind = if u.is_ai { "AI" } else { "Human" };
             let where_from = if u.host.is_empty() || u.host == u.name {
                 String::new()
@@ -507,7 +527,7 @@ pub fn users_cmd(channel: Option<&str>, all: bool) {
             };
             println!(
                 "  @{:<16} {:<6}{:<12} {} message(s), last at {at}",
-                u.name, kind, where_from, u.messages
+                name, kind, where_from, u.messages
             );
         }
     }

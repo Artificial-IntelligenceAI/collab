@@ -131,7 +131,9 @@ impl Notifier {
                                 continue;
                             }
                             // Addressed to somebody else: still delivered, not announced.
-                            if !m.is_for(&config::my_names()) {
+                            // Per channel, because a name chosen for one room is
+                            // not a name in another.
+                            if !m.is_for(&config::my_names_on(&m.channel)) {
                                 continue;
                             }
                             pending.push(m);
