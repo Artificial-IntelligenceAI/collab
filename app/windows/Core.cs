@@ -106,6 +106,12 @@ namespace Collab
         public ObservableCollection<Msg> Messages { get; } = new();
         public ObservableCollection<string> Channels { get; } = new();
         public string Me { get; private set; } = "";
+        /// Per-channel names, so the footer says who the message will actually
+        /// go out as rather than who the machine is.
+        public System.Collections.Generic.Dictionary<string, string> DisplayNames { get; } = new();
+
+        public string DisplayName(string channel) =>
+            DisplayNames.TryGetValue(channel, out var d) && !string.IsNullOrWhiteSpace(d) ? d : Me;
         public string ServerAddr { get; private set; } = "";
         public bool Connected { get; private set; }
         public string? Fatal { get; private set; }
@@ -174,6 +180,15 @@ namespace Collab
                         Channels.Add(c.GetString() ?? "");
             }
             catch (Exception e) { Fatal = "cannot read collab's settings — " + e.Message; }
+            try
+            {
+                DisplayNames.Clear();
+                foreach (var c in JsonDocument.Parse(Run("channels -json")).RootElement.EnumerateArray())
+                    if (c.TryGetProperty("name", out var cn))
+                        DisplayNames[cn.GetString() ?? ""] =
+                            c.TryGetProperty("display", out var dv) ? dv.GetString() ?? "" : "";
+            }
+            catch { }
             Changed?.Invoke();
         }
 

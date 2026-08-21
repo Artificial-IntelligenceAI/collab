@@ -117,6 +117,10 @@ final class Core: ObservableObject {
     @Published private(set) var wasDisconnected = false
     @Published private(set) var statusDetail: String?
     @Published private(set) var me = ""
+    /// What this machine calls itself on each channel. The composer footer has
+    /// to read from this rather than from `me`, or it tells you that you are
+    /// posting as the machine while the message goes out under another name.
+    @Published private(set) var displayNames: [String: String] = [:]
     @Published private(set) var homeChannel = "general"
     @Published private(set) var serverAddr = ""
     @Published private(set) var knownChannels: [String] = []
@@ -188,6 +192,24 @@ final class Core: ObservableObject {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// The name to show for a channel: the one chosen there, or the machine's.
+    func displayName(on channel: String) -> String {
+        let d = displayNames[channel] ?? ""
+        return d.isEmpty ? me : d
+    }
+
+    func loadDisplayNames() {
+        guard let json = try? run(["channels", "-json"]),
+              let data = json.data(using: .utf8),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return }
+        var out: [String: String] = [:]
+        for c in list {
+            if let n = c["name"] as? String { out[n] = (c["display"] as? String) ?? "" }
+        }
+        displayNames = out
+    }
+
     private func run(_ args: [String], channel: String? = nil) throws -> String {
         guard let bin = Core.binary() else { throw CollabError.noBinary }
         let p = Process()
@@ -229,6 +251,7 @@ final class Core: ObservableObject {
         else { return }
         me = s.name
         homeChannel = s.channel
+        loadDisplayNames()
         serverAddr = s.addr
         knownChannels = s.channels
         settingsLoaded = true

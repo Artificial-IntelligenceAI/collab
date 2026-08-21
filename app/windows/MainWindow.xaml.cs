@@ -133,7 +133,7 @@ namespace Collab
                     : $"Nothing on #{channel} yet.\nSay something below and it reaches the other machine.";
 
             Entry.IsEnabled = SendBtn.IsEnabled = view == "chat";
-            Footer.Text = $"posting as {core.Me} on #{channel}";
+            Footer.Text = $"posting as {core.DisplayName(channel)} on #{channel}";
             Footer.Foreground = Sol.FgDim;
             Scroller.ScrollToEnd();
         }

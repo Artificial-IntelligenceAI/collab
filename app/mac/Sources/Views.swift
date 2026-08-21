@@ -199,7 +199,7 @@ struct ContentView: View {
                         .tint(Sol.blue)
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                Text(sendError ?? note ?? "posting as \(core.me) on #\(postChannel)")
+                Text(sendError ?? note ?? "posting as \(core.displayName(on: postChannel)) on #\(postChannel)")
                     .font(.system(size: 11))
                     .foregroundStyle(sendError != nil ? Sol.red : (note != nil ? Sol.green : Sol.fgDim))
             }
