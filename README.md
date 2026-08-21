@@ -406,9 +406,20 @@ Verified rather than assumed: that produces a `PE32+ executable (console) x86-64
 and `build.sh` stops skipping the Windows half. `notify/windows` is the C# toast
 helper and builds too.
 
-What has still never happened is either of them being **run**. Compiling for a
-platform says nothing about behaving on it, and no line of the Windows side has
-executed anywhere. A native window for that side is still to do.
+Both have now been **run**, on a Windows 11 ARM VM, and the following are
+verified rather than assumed: messages in both directions across a real network,
+encrypted; channel keys carried between machines; live streaming with backlog
+marked as backlog; resume after an outage; `@` mentions and their refusals;
+change entries; the users listing; and file transfer both ways, hash-identical
+at each end. Toast notifications work — confirmed on screen, not by an exit code.
+
+Running it found two bugs that could not have been found any other way: a
+P/Invoke to a function that is not an export, which had stopped notifications
+from ever working; and a watcher that recorded its place before delivering,
+which silently lost a message whenever its reader went away.
+
+What is still missing on Windows is the **app**. There is a command line and
+there are notifications; there is no window. That is the remaining gap.
 
 ## Files
 

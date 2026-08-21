@@ -843,13 +843,50 @@ pub fn get_file_cmd(which: &str, out: Option<&str>, channel: Option<&str>) {
             .is_some_and(|f| f.hash == which || f.hash.starts_with(which) || f.name == which)
     });
     let Some(f) = found.and_then(|m| m.file.clone()) else {
+        // `files -c other` lists it and then `get` says it does not exist,
+        // because get looked at the configured channel instead. Saying where
+        // it actually is turns that into one command rather than a hunt.
+        let elsewhere: Vec<String> = channels::names()
+            .into_iter()
+            .filter(|c| *c != ch)
+            .filter(|c| {
+                files_on(c).iter().any(|m| {
+                    m.file.as_ref().is_some_and(|f| {
+                        f.hash == which || f.hash.starts_with(which) || f.name == which
+                    })
+                })
+            })
+            .collect();
         eprintln!("collab: no file matching \"{which}\" on #{ch}");
+        if !elsewhere.is_empty() {
+            eprintln!(
+                "  it is on {} — add -c {}",
+                elsewhere
+                    .iter()
+                    .map(|c| format!("#{c}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                elsewhere[0]
+            );
+        }
         std::process::exit(2);
     };
-    let dir = out
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(default_incoming);
-    match get_file(&f.hash, &f.name, &dir, &ch) {
+    // -o naming a directory saves into it; anything else is taken as the file
+    // to write. Creating a directory called `got.txt` because that is what the
+    // person typed is surprising in the way that costs an afternoon.
+    let (dir, rename) = match out.map(std::path::PathBuf::from) {
+        None => (default_incoming(), None),
+        Some(p) if p.is_dir() => (p, None),
+        Some(p) if p.extension().is_some() => {
+            let parent = p.parent().filter(|d| !d.as_os_str().is_empty());
+            (
+                parent.map(|d| d.to_path_buf()).unwrap_or_else(|| ".".into()),
+                p.file_name().map(|n| n.to_string_lossy().into_owned()),
+            )
+        }
+        Some(p) => (p, None),
+    };
+    match get_file(&f.hash, rename.as_deref().unwrap_or(&f.name), &dir, &ch) {
         Ok(p) => println!("saved {}", p.display()),
         Err(e) => {
             eprintln!("collab: {e}");
