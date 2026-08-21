@@ -238,9 +238,9 @@ struct ChannelsView: View {
             }
 
             HStack {
-                TextField("Name someone sent you", text: $addName)
+                TextField("What they call the channel, e.g. roblox-game", text: $addName)
                     .textFieldStyle(.roundedBorder).frame(width: 150)
-                TextField("…and its key", text: $addKey)
+                TextField("…and the key they sent", text: $addKey)
                     .textFieldStyle(.roundedBorder)
                 Button("Join") {
                     if store.add(name: addName, key: addKey) {

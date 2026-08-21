@@ -22,6 +22,8 @@ namespace Collab
             Background = Sol.Bg;
             foreach (var t in new TextBlock[] { Blurb, MakeLabel, JoinLabel })
                 t.Foreground = t == Blurb ? Sol.FgDim : Sol.FgEm;
+            foreach (var t in new TextBlock[] { JoinNameHint, JoinKeyHint })
+                t.Foreground = Sol.FgDim;
             foreach (var b in new TextBox[] { NewName, JoinName, JoinKey })
             {
                 b.Background = Sol.BgAlt; b.Foreground = Sol.FgEm;

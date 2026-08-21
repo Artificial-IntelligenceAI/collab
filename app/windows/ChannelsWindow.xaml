@@ -26,15 +26,21 @@
         <Button x:Name="MakeBtn" Grid.Column="1" Content="Make" Click="OnMake"
                 Padding="16,5" Margin="8,0,0,0" FontWeight="SemiBold"/>
       </Grid>
-      <TextBlock x:Name="JoinLabel" Text="Or join one someone sent you" FontWeight="SemiBold" Margin="0,12,0,5"/>
+      <TextBlock x:Name="JoinLabel" Text="Or join one someone sent you — use the name they call it, so you are both talking about the same room" FontWeight="SemiBold" Margin="0,12,0,5"/>
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <TextBox x:Name="JoinName" Width="130" Padding="7,5" Margin="0,0,8,0"/>
-        <TextBox x:Name="JoinKey" Grid.Column="1" Padding="7,5" FontFamily="Consolas" FontSize="11"/>
+        <StackPanel Width="150" Margin="0,0,8,0">
+          <TextBlock x:Name="JoinNameHint" Text="channel name" FontSize="10" Margin="1,0,0,2"/>
+          <TextBox x:Name="JoinName" Padding="7,5"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1">
+          <TextBlock x:Name="JoinKeyHint" Text="the key they sent you" FontSize="10" Margin="1,0,0,2"/>
+          <TextBox x:Name="JoinKey" Padding="7,5" FontFamily="Consolas" FontSize="11"/>
+        </StackPanel>
         <Button x:Name="JoinBtn" Grid.Column="2" Content="Join" Click="OnJoin"
-                Padding="16,5" Margin="8,0,0,0"/>
+                Padding="16,5" Margin="8,0,0,0" VerticalAlignment="Bottom"/>
       </Grid>
     </StackPanel>
 
