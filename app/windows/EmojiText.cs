@@ -1,15 +1,21 @@
-// Puts colour emoji into an ordinary TextBlock, including the joined ones.
+// Puts colour emoji into an ordinary TextBlock or RichTextBox.
 //
-// Rather than write a text control — which would mean reimplementing word
-// wrapping, selection and hit testing — the string is split into runs and each
-// emoji becomes an inline image. WPF keeps doing the layout it is good at.
+// Two jobs, and both are handed to something that already does them properly.
+// Where one emoji ends and the next begins is a Unicode grapheme-cluster
+// question, and .NET answers it — including 👨‍👩‍👧 as one cluster, 🇹🇭 as one, and
+// 👍🏽 as one. Drawing the cluster is DirectWrite's job, through EmojiDW.
 //
-// A joined emoji is several codepoints that the font turns into one glyph:
-// 👨‍👩‍👧 is man, zero-width joiner, woman, joiner, girl, and 👍🏽 is a thumb plus a
-// skin tone. The font's GSUB table says which sequences collapse; without
-// applying it the parts each render separately, which is what this used to do.
+// The previous version did both by hand: it mapped single codepoints through
+// the font's cmap and applied the ligature table itself. That reached simple
+// emoji and skin tones and could not reach anything joined, because the font
+// expects contextual substitutions to run first.
+//
+// Rather than a custom text control — which would mean reimplementing word
+// wrapping, selection and hit testing — the string becomes runs and inline
+// images, and WPF keeps doing the layout it is good at.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -26,6 +32,8 @@ namespace Collab
 
         public static void SetSource(DependencyObject o, string v) => o.SetValue(SourceProperty, v);
         public static string GetSource(DependencyObject o) => (string)o.GetValue(SourceProperty);
+
+        static readonly Dictionary<(string, int), ImageSource?> cache = new();
 
         static void OnChanged(DependencyObject o, DependencyPropertyChangedEventArgs e)
         {
@@ -53,32 +61,32 @@ namespace Collab
             }
         }
 
-        /// One codepoint of the source, with where it came from, so a run that
-        /// turns out not to be an emoji can be put back as the original text.
-        readonly struct Unit
+        /// Whether a grapheme cluster is something to draw as a picture. Broad
+        /// on purpose: a cluster that is not really an emoji renders as itself
+        /// through DirectWrite anyway, so a false positive costs a little
+        /// memory, while a false negative shows a box.
+        static bool LooksLikeEmoji(string cluster)
         {
-            public readonly int Cp, Index, Length;
-            public readonly ushort? Glyph;
-            public Unit(int cp, int index, int length, ushort? glyph)
-            { Cp = cp; Index = index; Length = length; Glyph = glyph; }
+            for (int i = 0; i < cluster.Length;)
+            {
+                int cp = char.ConvertToUtf32(cluster, i);
+                i += char.IsSurrogatePair(cluster, i) ? 2 : 1;
+                if (cp >= 0x1F000) return true;                    // the emoji planes
+                if (cp is >= 0x2600 and <= 0x27BF) return true;     // misc symbols, dingbats
+                if (cp is >= 0x2B00 and <= 0x2BFF) return true;     // arrows and shapes
+                if (cp is >= 0x2190 and <= 0x21FF) return true;     // arrows
+                if (cp == 0xFE0F || cp == 0x20E3) return true;      // emoji presentation, keycap
+                if (cp is 0x00A9 or 0x00AE or 0x2122) return true;  // © ® ™
+            }
+            return false;
         }
 
         static IEnumerable<Inline> Build(string text, double fontSize)
         {
             var made = new List<Inline>();
             if (text.Length == 0) return made;
-            if (!EmojiFont.Available) { made.Add(new Run(text)); return made; }
-
             double size = fontSize > 0 ? fontSize : 13;
-
-            var units = new List<Unit>();
-            for (int i = 0; i < text.Length;)
-            {
-                int cp = char.ConvertToUtf32(text, i);
-                int len = char.IsSurrogatePair(text, i) ? 2 : 1;
-                units.Add(new Unit(cp, i, len, EmojiFont.Glyph(cp)));
-                i += len;
-            }
+            if (!EmojiDW.Available) { made.Add(new Run(text)); return made; }
 
             var buffer = new System.Text.StringBuilder();
             void FlushText()
@@ -88,58 +96,33 @@ namespace Collab
                 buffer.Clear();
             }
 
-            for (int i = 0; i < units.Count;)
+            var e = StringInfo.GetTextElementEnumerator(text);
+            while (e.MoveNext())
             {
-                var u = units[i];
+                var cluster = (string)e.Current;
+                if (!LooksLikeEmoji(cluster)) { buffer.Append(cluster); continue; }
 
-                // Try the longest ligature starting here first, so a family is
-                // one picture rather than three people.
-                if (u.Glyph is ushort g && EmojiFont.StartsLigature(g))
+                var key = (cluster, (int)Math.Round(size));
+                if (!cache.TryGetValue(key, out var img))
                 {
-                    var run = new List<ushort>();
-                    for (int k = i; k < units.Count && units[k].Glyph is ushort gk; k++) run.Add(gk);
-                    var hit = EmojiFont.Ligate(run, 0);
-                    if (hit is (ushort lig, int used) && EmojiFont.HasColour(lig))
-                    {
-                        FlushText();
-                        made.Add(Picture(lig, size));
-                        i += used;
-                        continue;
-                    }
+                    img = EmojiDW.Render(cluster, size);
+                    cache[key] = img;
                 }
+                if (img == null) { buffer.Append(cluster); continue; }
 
-                // A joiner or variation selector that did not form a ligature
-                // has no glyph worth drawing and would show as a box.
-                if (u.Cp == 0x200D || u.Cp == 0xFE0F || u.Cp == 0xFE0E) { i++; continue; }
-
-                if (u.Glyph is ushort single && EmojiFont.HasColour(single))
+                FlushText();
+                made.Add(new InlineUIContainer(new Image
                 {
-                    FlushText();
-                    made.Add(Picture(single, size));
-                    i++;
-                    continue;
-                }
-
-                buffer.Append(text, u.Index, u.Length);
-                i++;
+                    Source = img,
+                    Width = size * 1.35,
+                    Height = size * 1.35,
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(0, 0, 0, -size * 0.25),
+                })
+                { BaselineAlignment = BaselineAlignment.Baseline });
             }
             FlushText();
             return made;
-        }
-
-        static Inline Picture(ushort glyph, double size)
-        {
-            var img = EmojiFont.RenderGlyph(glyph, size);
-            if (img == null) return new Run("");
-            return new InlineUIContainer(new Image
-            {
-                Source = img,
-                Width = size * 1.25,
-                Height = size * 1.25,
-                Stretch = Stretch.Uniform,
-                Margin = new Thickness(0, 0, 0, -size * 0.2),
-            })
-            { BaselineAlignment = BaselineAlignment.Baseline };
         }
     }
 }
