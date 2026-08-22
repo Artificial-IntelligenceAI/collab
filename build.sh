@@ -27,8 +27,11 @@ app/mac/build.sh "$PWD/dist.noindex/macos/Collab.app" >/dev/null && echo "  buil
 echo "→ windows"
 if rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu; then
   ( cd core && cargo build --release --quiet --target x86_64-pc-windows-gnu )
-  cp core/target/x86_64-pc-windows-gnu/release/collab.exe dist.noindex/windows/collab.exe
-  echo "  built dist.noindex/windows/collab.exe"
+  # Straight into bin/. The app is Collab.exe at the top level, and on a
+  # case-insensitive filesystem the two cannot share one directory.
+  mkdir -p dist.noindex/windows/bin
+  cp core/target/x86_64-pc-windows-gnu/release/collab.exe dist.noindex/windows/bin/collab.exe
+  echo "  built dist.noindex/windows/bin/collab.exe"
 else
   echo "  SKIPPED collab.exe — run: rustup target add x86_64-pc-windows-gnu && brew install mingw-w64" >&2
 fi

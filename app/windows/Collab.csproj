@@ -7,6 +7,7 @@
     <AssemblyName>Collab</AssemblyName>
     <RootNamespace>Collab</RootNamespace>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>collab.ico</ApplicationIcon>
     <ImplicitUsings>disable</ImplicitUsings>
     <!-- Cross-building a Windows app from the Mac. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
