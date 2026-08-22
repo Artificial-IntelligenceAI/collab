@@ -502,13 +502,39 @@ struct ChatList: View {
 
 /// Colours the @names in a message, and makes the one aimed at you stand out —
 /// a mention you have to hunt for is not much of a mention.
+///
+/// Also renders the inline markdown everyone writes anyway. Bold and italic are
+/// decoration and it costs nothing to show them; **backticks are not**. On this
+/// channel a backticked name is how you write *about* somebody without
+/// addressing them, so the one piece of syntax the conversation depends on was
+/// the one arriving as punctuation.
+///
+/// Which is why code runs are excluded from mention colouring below. A live
+/// `@name` reaches someone and a backticked one does not, and the window now
+/// says which is which instead of drawing them identically.
 func mentionMarkup(_ text: String, me: String) -> AttributedString {
-    var out = AttributedString(text)
-    for word in text.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+    var out = (try? AttributedString(
+        markdown: text,
+        options: .init(
+            // Inline only: bold, italic, code. No headers, lists or block
+            // quotes — a chat line is not a document, and a stray "# " at the
+            // start of a sentence should stay a "# ".
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible)))
+        ?? AttributedString(text)
+
+    for run in out.runs where run.inlinePresentationIntent?.contains(.code) == true {
+        out[run.range].font = .system(size: 12, design: .monospaced)
+        out[run.range].foregroundColor = Sol.cyan
+    }
+
+    let plain = String(out.characters)
+    for word in plain.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
         guard word.hasPrefix("@"), word.count > 1 else { continue }
         let name = word.dropFirst().lowercased()
             .trimmingCharacters(in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./")).inverted)
         guard let r = out.range(of: String(word)) else { continue }
+        if out[r].inlinePresentationIntent?.contains(.code) == true { continue }
         let mine = !me.isEmpty && name == me.lowercased()
         out[r].foregroundColor = mine ? Sol.onAccent : Sol.blue
         out[r].font = .system(size: 13, weight: .semibold)

@@ -81,6 +81,62 @@ namespace Collab
             return false;
         }
 
+        /// One stretch of text with the inline markdown that applies to it.
+        readonly struct Seg
+        {
+            public readonly string Text; public readonly bool Bold, Italic, Code;
+            public Seg(string t, bool b, bool i, bool c) { Text = t; Bold = b; Italic = i; Code = c; }
+        }
+
+        /// Inline markdown only: `code`, **bold**, *italic*. No headers, lists or
+        /// block quotes — a chat line is not a document, and a sentence opening
+        /// with "# " should keep its hash.
+        ///
+        /// A delimiter with no partner stays literal, so "2 * 3" and a lone
+        /// backtick read as themselves rather than swallowing the rest of the
+        /// message. Code wins outright: nothing inside backticks is markup,
+        /// which matters here because a backticked name is how you write about
+        /// somebody without addressing them.
+        static List<Seg> Split(string text)
+        {
+            var segs = new List<Seg>();
+            var buf = new System.Text.StringBuilder();
+            bool bold = false, italic = false;
+            void Flush() { if (buf.Length > 0) { segs.Add(new Seg(buf.ToString(), bold, italic, false)); buf.Clear(); } }
+
+            int i = 0;
+            while (i < text.Length)
+            {
+                char c = text[i];
+                if (c == '`')
+                {
+                    int end = text.IndexOf('`', i + 1);
+                    if (end > i)
+                    {
+                        Flush();
+                        segs.Add(new Seg(text.Substring(i + 1, end - i - 1), bold, italic, true));
+                        i = end + 1; continue;
+                    }
+                }
+                else if (c == '*' && i + 1 < text.Length && text[i + 1] == '*')
+                {
+                    // Closing always closes; opening only opens if a closer exists.
+                    if (bold) { Flush(); bold = false; i += 2; continue; }
+                    if (text.IndexOf("**", i + 2, StringComparison.Ordinal) > 0) { Flush(); bold = true; i += 2; continue; }
+                }
+                else if (c == '*')
+                {
+                    if (italic) { Flush(); italic = false; i += 1; continue; }
+                    if (text.IndexOf('*', i + 1) > 0) { Flush(); italic = true; i += 1; continue; }
+                }
+                buf.Append(c); i++;
+            }
+            Flush();
+            return segs;
+        }
+
+        static readonly FontFamily Mono = new FontFamily("Cascadia Mono, Consolas, Courier New");
+
         static IEnumerable<Inline> Build(string text, double fontSize)
         {
             var made = new List<Inline>();
@@ -88,11 +144,27 @@ namespace Collab
             double size = fontSize > 0 ? fontSize : 13;
             if (!EmojiDW.Available) { made.Add(new Run(text)); return made; }
 
+            foreach (var seg in Split(text))
+                BuildSeg(seg, size, made);
+            return made;
+        }
+
+        static void BuildSeg(Seg seg, double size, List<Inline> made)
+        {
+            string text = seg.Text;
+            Run Style(Run r)
+            {
+                if (seg.Bold) r.FontWeight = FontWeights.Bold;
+                if (seg.Italic) r.FontStyle = FontStyles.Italic;
+                if (seg.Code) { r.FontFamily = Mono; r.Foreground = Sol.Cyan; r.FontSize = size - 1; }
+                return r;
+            }
+
             var buffer = new System.Text.StringBuilder();
             void FlushText()
             {
                 if (buffer.Length == 0) return;
-                made.Add(new Run(buffer.ToString()));
+                made.Add(Style(new Run(buffer.ToString())));
                 buffer.Clear();
             }
 
@@ -122,7 +194,6 @@ namespace Collab
                 { BaselineAlignment = BaselineAlignment.Baseline });
             }
             FlushText();
-            return made;
         }
     }
 }
