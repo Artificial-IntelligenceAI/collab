@@ -979,6 +979,22 @@ pub fn channel_create(name: &str) {
     }
 }
 
+/// Prints the same two lines as `channel_create` — name, then invite — because
+/// both GUIs read it the same way, and because a new key is useless until the
+/// other person has it.
+pub fn channel_rotate(name: &str) {
+    match channels::rotate(name) {
+        Ok((n, key)) => {
+            println!("#{n}");
+            println!("{}", channels::invite(&n, &key));
+        }
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
 /// Takes either an invite (`name:key`, one argument) or the older
 /// `<name> <key>` pair. An invite carries the name, so the person joining does
 /// not choose one — which is what stopped both machines agreeing on what the

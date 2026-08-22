@@ -122,6 +122,21 @@ final class ChannelStore: ObservableObject {
             self.error = error.localizedDescription
         }
     }
+
+    /// Returns the new invite, because a rotated key that nobody has been given
+    /// is just a channel with one person left on it.
+    func rotate(_ name: String) -> String? {
+        do {
+            let out = try collab(["channel", "rotate", name])
+            reload()
+            error = nil
+            return out.split(separator: "\n").last.map(String.init)?
+                .trimmingCharacters(in: .whitespaces)
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
 }
 
 struct ChannelsView: View {
@@ -136,6 +151,7 @@ struct ChannelsView: View {
     @State private var justMade: (name: String, key: String)?
     @State private var copied: String?
     @State private var confirming: ChannelInfo?
+    @State private var rotatingCh: ChannelInfo?
     /// The channel whose name is being chosen, and the name being typed.
     @State private var naming: ChannelInfo?
     @State private var draftName = ""
@@ -186,6 +202,22 @@ struct ChannelsView: View {
             Text("Its messages are deleted from the server and its key is dropped here. "
                  + "Anyone still holding the key will no longer be able to connect. This cannot be undone.")
         }
+        .alert("New key for #\(rotatingCh?.name ?? "")?",
+               isPresented: Binding(get: { rotatingCh != nil },
+                                    set: { if !$0 { rotatingCh = nil } })) {
+            Button("New key", role: .destructive) {
+                if let c = rotatingCh, let invite = store.rotate(c.name) {
+                    copy(invite, tag: c.name)
+                    onChange()
+                }
+                rotatingCh = nil
+            }
+            Button("Cancel", role: .cancel) { rotatingCh = nil }
+        } message: {
+            Text("The old key stops working. Everything already said stays readable here, "
+                 + "but anyone else on #\(rotatingCh?.name ?? "") is disconnected until you send "
+                 + "them the new invite — which is copied for you when you press this.")
+        }
         .sheet(item: $naming) { _ in namingSheet }
     }
 
@@ -203,6 +235,9 @@ struct ChannelsView: View {
                 // Made here: closing it is real, and irreversible, so it asks.
                 // Given to you: you can only put your own copy down.
                 if c.mine {
+                    Button("New key") { rotatingCh = c }
+                        .buttonStyle(.borderless).font(.system(size: 11))
+                        .help("Replaces the key. Everyone else must be sent the new invite")
                     Button("Delete") { confirming = c }
                         .buttonStyle(.borderless).font(.system(size: 11))
                         .foregroundStyle(Sol.red)

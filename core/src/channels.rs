@@ -180,6 +180,41 @@ pub fn create(name: &str) -> Result<(String, String), String> {
     Ok((name, key))
 }
 
+/// A new key for a channel made here. Nothing already said is lost — history is
+/// kept decrypted on this machine — but every other machine holding the old key
+/// stops being able to open a frame, which is the whole point: rotation is how a
+/// leaked key stops mattering. Nobody is thrown out of a conversation so much as
+/// required to be re-invited to it, so this hands back the new invite to send.
+///
+/// The running server picks it up without a restart: it re-reads the registry on
+/// every connection rather than holding keys in memory.
+///
+/// Only for channels made here, for the same reason `may_delete` is. Rotating a
+/// channel somebody else made would not secure it — it would remove them from it
+/// using the key they gave you in good faith.
+pub fn rotate(name: &str) -> Result<(String, String), String> {
+    let name = tidy(name);
+    let mut reg = load();
+    let ch = reg
+        .get_mut(&name)
+        .ok_or_else(|| format!("no channel #{name} here"))?;
+    if !ch.mine {
+        let who = if ch.creator_name().is_empty() {
+            "whoever made it".to_string()
+        } else {
+            ch.creator_name()
+        };
+        return Err(format!(
+            "#{name} was joined, not made here — a new key would lock out {who}, \
+             using the key they gave you. Ask {who} to rotate it instead"
+        ));
+    }
+    let key = B64.encode(crate::crypto::random(KEY_BYTES));
+    ch.key = key.clone();
+    save(&reg).map_err(|e| e.to_string())?;
+    Ok((name, key))
+}
+
 /// Adding a channel somebody else made, from the name and key they sent you.
 pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
     let name = tidy(name);

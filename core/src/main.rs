@@ -201,6 +201,7 @@ fn main() {
             ),
             Some("delete") => client::channel_delete(args.get(1).map(String::as_str).unwrap_or("")),
             Some("forget") => client::channel_forget(args.get(1).map(String::as_str).unwrap_or("")),
+            Some("rotate") => client::channel_rotate(args.get(1).map(String::as_str).unwrap_or("")),
             Some("name") => client::channel_name(
                 args.get(1).map(String::as_str).unwrap_or(""),
                 args.get(2).map(String::as_str).unwrap_or(""),
@@ -209,6 +210,7 @@ fn main() {
                 eprintln!("usage: collab channel add <name> <key>");
                 eprintln!("       collab channel delete <name>   (only where it was made)");
                 eprintln!("       collab channel forget <name>   (leave; drops your key only)");
+                eprintln!("       collab channel rotate <name>   (new key; everyone else must be re-invited)");
                 eprintln!("       (new channels are made in the collab app, by a person)");
                 std::process::exit(2);
             }

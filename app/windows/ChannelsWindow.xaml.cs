@@ -96,6 +96,26 @@ namespace Collab
             var copy = new Button { Content = "Copy invite", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
             copy.Click += (_, _) => { try { Clipboard.SetText(invite); copy.Content = "Copied"; } catch { } };
 
+            // Only for channels made here: the CLI refuses the rest, and offering a
+            // button that always fails is worse than not offering one.
+            var rekey = new Button { Content = "New key", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0) };
+            rekey.Click += (_, _) =>
+            {
+                var q = $"New key for #{name}?\n\nThe old key stops working. Everything already said "
+                      + $"stays readable here, but anyone else on #{name} is disconnected until you "
+                      + "send them the new invite \u2014 which is copied for you when you press OK.";
+                if (MessageBox.Show(q, "collab", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+                var outp = Core.Run($"channel rotate \"{name}\"").Trim();
+                var lines = outp.Split('\n');
+                if (lines.Length >= 2)
+                {
+                    try { Clipboard.SetText(lines[1].Trim()); } catch { }
+                    Note.Text = $"#{name} has a new key \u2014 the new invite is on your clipboard";
+                }
+                else Note.Text = lines[0].Trim();
+                Reload();
+            };
+
             var drop = new Button { Content = mine ? "Delete" : "Forget", Padding = new Thickness(10, 3, 10, 3) };
             drop.Click += (_, _) =>
             {
@@ -108,7 +128,9 @@ namespace Collab
             };
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-            buttons.Children.Add(rename); buttons.Children.Add(copy); buttons.Children.Add(drop);
+            buttons.Children.Add(rename); buttons.Children.Add(copy);
+            if (mine) buttons.Children.Add(rekey);
+            buttons.Children.Add(drop);
 
             var body = new StackPanel();
             body.Children.Add(head); body.Children.Add(youAre);
