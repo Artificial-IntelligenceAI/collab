@@ -32,6 +32,7 @@ New-Item -ItemType Directory -Force -Path $dest, (Join-Path $dest 'bin') | Out-N
 Copy-Item (Join-Path $here 'Collab.exe')     $dest -Force
 Copy-Item (Join-Path $here 'bin\collab.exe') (Join-Path $dest 'bin') -Force
 if (Test-Path (Join-Path $here 'collab.png')) { Copy-Item (Join-Path $here 'collab.png') $dest -Force }
+Copy-Item (Join-Path $here 'Uninstall.ps1') $dest -Force
 
 # Shortcuts. The app makes its own Start Menu entry on first run because
 # Windows will not attribute a toast to an unregistered program, but making it
@@ -43,7 +44,7 @@ foreach ($dir in @(
   $lnk = $shell.CreateShortcut((Join-Path $dir 'collab.lnk'))
   $lnk.TargetPath = Join-Path $dest 'Collab.exe'
   $lnk.WorkingDirectory = $dest
-  $lnk.Description = 'collab — messages from the other machine'
+  $lnk.Description = 'collab - messages from the other machine'
   $lnk.Save()
 }
 Write-Host '  shortcuts added to the Start Menu and the Desktop'
@@ -57,8 +58,50 @@ Set-ItemProperty $key InstallLocation $dest
 Set-ItemProperty $key Publisher       'Tankun Sriket'
 Set-ItemProperty $key NoModify        1 -Type DWord
 Set-ItemProperty $key NoRepair        1 -Type DWord
-Set-ItemProperty $key UninstallString ("powershell -ExecutionPolicy Bypass -File `"" + (Join-Path $dest 'Uninstall.ps1') + "`"")
-Copy-Item (Join-Path $here 'Uninstall.ps1') $dest -Force
+Set-ItemProperty $key UninstallString ('powershell -ExecutionPolicy Bypass -File "' + (Join-Path $dest 'Uninstall.ps1') + '"')
+
+# Register the MCP server so this person's Claude can read and post here.
+# Deliberately in ONE config file only. The same server registered under the
+# same name in both Claude Code's config and the desktop app's caused four
+# hours of phantom refusals on the other machine: the desktop app's copy
+# shadowed Claude Code's, tool calls landed on a server with no session id,
+# and every post was refused with a message about not having joined.
+$cliCfg  = Join-Path $env:USERPROFILE '.claude.json'
+$deskCfg = Join-Path $env:APPDATA 'Claude\claude_desktop_config.json'
+$target = $null
+$other = $null
+$which = ''
+if (Test-Path $cliCfg) {
+  $target = $cliCfg; $other = $deskCfg; $which = 'Claude Code'
+} elseif (Test-Path $deskCfg) {
+  $target = $deskCfg; $other = $cliCfg; $which = 'the Claude desktop app'
+}
+
+$exe = Join-Path $dest 'bin\collab.exe'
+if ($target) {
+  try {
+    Copy-Item $target ($target + '.backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) -Force
+    $cfg = Get-Content $target -Raw | ConvertFrom-Json
+    if ($null -eq $cfg.mcpServers) {
+      $cfg | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    $entry = [pscustomobject]@{ command = $exe; args = @('mcp') }
+    $cfg.mcpServers | Add-Member -NotePropertyName collab -NotePropertyValue $entry -Force
+    $cfg | ConvertTo-Json -Depth 32 | Set-Content $target -Encoding UTF8
+    Write-Host "  registered with $which - restart it to pick up the tools"
+    if (Test-Path $other) {
+      Write-Host '  (the other Claude config was left alone on purpose: the same'
+      Write-Host '   server registered in both shadows one and breaks posting)'
+    }
+  } catch {
+    Write-Host "  could not register with $which - add this to its mcpServers yourself:" -ForegroundColor Yellow
+    Write-Host ('    "collab": { "command": "' + ($exe -replace '\\', '\\\\') + '", "args": ["mcp"] }')
+  }
+} else {
+  Write-Host '  no Claude config found, so nothing was registered.'
+  Write-Host '  If you use Claude, add this to its mcpServers:'
+  Write-Host ('    "collab": { "command": "' + ($exe -replace '\\', '\\\\') + '", "args": ["mcp"] }')
+}
 
 Write-Host ''
 Write-Host '  done.' -ForegroundColor Green
