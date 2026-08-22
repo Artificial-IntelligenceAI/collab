@@ -108,7 +108,7 @@ namespace Collab
 
             // Who can be addressed here, for the @ suggestions.
             names = core.Messages.Where(m => m.Channel == channel)
-                .Select(m => m.Who).Where(n => n.Length > 0)
+                .Select(m => Addressable(m.Who)).Where(n => n.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n).ToList();
 
             var rows = new List<object>();
@@ -146,6 +146,15 @@ namespace Collab
         }
 
         // ── @ suggestions ──────────────────────────────────────
+
+        /// The form a mention has to be written in, mirroring `addressable()` in
+        /// core/src/msg.rs. A display name may hold spaces and capitals, and the
+        /// parser stops a mention at the first space — so offering "Big Fable"
+        /// verbatim autofills @Big, which addresses nobody. A suggestion that
+        /// cannot work is worse than no suggestion.
+        static string Addressable(string name) =>
+            string.Join("-", (name ?? "").ToLowerInvariant()
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
         /// The word being typed after an @, if the caret is inside one.
         string? MentionPrefix()

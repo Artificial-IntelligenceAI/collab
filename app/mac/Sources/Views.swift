@@ -146,9 +146,14 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(suggestions.enumerated()), id: \.element.name) { i, s in
                         HStack(spacing: 7) {
-                            Text("@" + s.name)
+                            Text("@" + Self.addressable(s.name))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(Sol.forName(s.name))
+                            if Self.addressable(s.name) != s.name {
+                                Text(s.name)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Sol.fgDim)
+                            }
                             Text(s.isAI ? "AI" : "Human")
                                 .font(.system(size: 9, weight: .bold))
                                 .padding(.horizontal, 4).padding(.vertical, 1)
@@ -235,12 +240,27 @@ struct ContentView: View {
         guard let q = mentionQuery else { return [] }
         let all = core.mentionable(on: channel)
         guard !q.isEmpty else { return Array(all.prefix(6)) }
-        return Array(all.filter { $0.name.lowercased().hasPrefix(q.lowercased()) }.prefix(6))
+        let qq = q.lowercased()
+        return Array(all.filter {
+            $0.name.lowercased().hasPrefix(qq) || Self.addressable($0.name).hasPrefix(qq)
+        }.prefix(6))
+    }
+
+    /// The form a mention has to be written in, mirroring `addressable()` in
+    /// core/src/msg.rs. A display name is a person's to choose and may hold
+    /// spaces and capitals; the parser stops a mention at the first space, so
+    /// "Big Fable" offered verbatim autofills `@Big`, which addresses nobody.
+    /// Offering a name that cannot work is worse than offering none.
+    static func addressable(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: "-")
     }
 
     private func accept(_ name: String) {
         guard let at = draft.lastIndex(of: "@") else { return }
-        draft = String(draft[..<at]) + "@" + name + " "
+        draft = String(draft[..<at]) + "@" + Self.addressable(name) + " "
         mentionPick = 0
     }
 
