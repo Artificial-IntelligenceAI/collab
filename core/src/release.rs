@@ -25,6 +25,11 @@ pub const PUBLIC_KEY: &str = "R9lWnR/OWXcy5XD/LZHrF3+MdnCwu2YKCHleVaTIgOc=";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MANIFEST: &str = "collab-release.json";
 
+/// The project's own releases. `latest` rather than a tag, so a build does not
+/// pin itself to the release it shipped with.
+pub const DEFAULT_UPDATE_URL: &str =
+    "https://github.com/Artificial-IntelligenceAI/collab/releases/latest/download";
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Artifact {
     pub sha256: String,
@@ -49,7 +54,12 @@ fn verifying_key() -> Option<VerifyingKey> {
 /// Where releases are fetched from. Nothing is downloaded until this is set,
 /// so a machine with no update source simply has no update button that works.
 pub fn source() -> Option<String> {
-    let u = config::env("COLLAB_UPDATE_URL", "");
+    // Where this build's updates come from, unless a machine overrides it.
+    // A default in the binary rather than a line an installer has to write:
+    // the config on the Windows machine had no update_url, so the whole
+    // signed-release mechanism would have reported "no update source set" to
+    // the one person it exists for.
+    let u = config::env("COLLAB_UPDATE_URL", DEFAULT_UPDATE_URL);
     (!u.is_empty()).then(|| u.trim_end_matches('/').to_string())
 }
 
