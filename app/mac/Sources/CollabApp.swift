@@ -26,6 +26,13 @@ final class AppState: ObservableObject {
     /// open collab is an ordinary app, which is also what makes the green
     /// button behave the way anybody would expect it to.
     func makeOrdinary(_ w: NSWindow) {
+        // fullScreenNone beats fullScreenPrimary: a window carrying both is
+        // refused full screen outright, which is why the green button fell back
+        // to zoom and the in-app button retried twelve times and gave up.
+        // SwiftUI sets it on this window under conditions I have not pinned
+        // down; inserting primary without removing it fixed nothing, four
+        // times. Take it off first.
+        w.collectionBehavior.remove(.fullScreenNone)
         w.collectionBehavior.insert(.fullScreenPrimary)
         w.styleMask.insert(.resizable)
         if NSApp.activationPolicy() != .regular {
@@ -43,6 +50,7 @@ final class AppState: ObservableObject {
     /// fixed delay can only ever guess at.
     private var accepted = false
     private var transitionStarted = Date.distantPast
+    fileprivate var lastResizeNote = Date.distantPast
 
     /// AppKit says when a full screen change begins and ends. Listening is what
     /// replaces guessing how long becoming a regular app takes.
@@ -66,11 +74,32 @@ final class AppState: ObservableObject {
         // zoom button, and clicking it only resizes the window. Re-asserting
         // whenever the window comes forward is what makes the second opening
         // behave like the first.
+        // The green button never reaches toggleFullScreen — AppKit handles it —
+        // so a failure there leaves no trace in the log at all, which is what
+        // today's silence showed. A resize is the visible symptom of the button
+        // choosing zoom over full screen, so record the state when one happens:
+        // if primary is false at that moment, the flag was lost and macOS
+        // downgraded the button. Throttled, because live resizing fires
+        // continuously.
+        nc.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { note in
+            MainActor.assumeIsolated {
+                let s = AppState.shared
+                guard let w = note.object as? NSWindow, w.title == "collab" else { return }
+                guard Date().timeIntervalSince(s.lastResizeNote) > 1.5 else { return }
+                s.lastResizeNote = Date()
+                s.note("resized \(s.state(w))")
+            }
+        }
+
         for n in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             nc.addObserver(forName: n, object: nil, queue: .main) { note in
                 MainActor.assumeIsolated {
                     guard let w = note.object as? NSWindow, w.title == "collab" else { return }
-                    AppState.shared.makeOrdinary(w)
+                    let s = AppState.shared
+                    let before = s.state(w)
+                    s.makeOrdinary(w)
+                    // Only worth a line when it actually changed something.
+                    if before != s.state(w) { s.note("promoted on \(note.name.rawValue) was: \(before)") }
                 }
             }
         }
