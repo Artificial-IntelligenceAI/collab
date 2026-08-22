@@ -118,6 +118,14 @@ struct ContentView: View {
             }
             .help("Channels — make one, or join one someone sent you")
 
+            // In the window, not only in the menu bar. An update nobody finds
+            // is an update nobody installs, and the menu bar is not where
+            // somebody looks for one.
+            Button { Updater.checkForUpdates() } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .help("Check for updates")
+
             HStack(spacing: 6) {
                 Circle()
                     .fill(core.connected ? Sol.green : Sol.red)
