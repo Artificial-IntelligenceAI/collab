@@ -54,6 +54,27 @@ final class AppState: ObservableObject {
 
     /// AppKit says when a full screen change begins and ends. Listening is what
     /// replaces guessing how long becoming a regular app takes.
+    /// Keeps fullScreenNone off the window, and says when it had to.
+    ///
+    /// Re-asserting only when the window becomes key is not enough: the green
+    /// button never enters this program, so if the flag appears while the
+    /// window simply sits there, the button silently becomes a zoom button and
+    /// nothing notices. Two seconds is cheap — it is a bit test — and the log
+    /// line is the point: it records the moment the flag arrives, which is the
+    /// one thing still unknown about this bug after five fixes.
+    func guardFullScreenFlag() {
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let s = AppState.shared
+                guard let w = s.mainWindow() else { return }
+                guard w.collectionBehavior.contains(.fullScreenNone) else { return }
+                s.note("CLEARED fullScreenNone, it had come back: \(s.state(w))")
+                w.collectionBehavior.remove(.fullScreenNone)
+                w.collectionBehavior.insert(.fullScreenPrimary)
+            }
+        }
+    }
+
     func watchFullScreen() {
         let nc = NotificationCenter.default
         for n in [NSWindow.willEnterFullScreenNotification,
@@ -231,6 +252,7 @@ final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterD
                 Notifier.post(batch: batch, me: state.core.me)
             }
             state.watchFullScreen()
+            state.guardFullScreenFlag()
             state.core.start()
         }
     }
