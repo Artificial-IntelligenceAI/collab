@@ -53,7 +53,14 @@ pub fn save_seen_for(channel: &str, n: i64, warned: &mut bool) {
     // destroy every other marker. That is not a stale place in the sequence,
     // it is a full replay of every other channel, and it happened twice
     // tonight on two different machines.
-    let tmp = config::home(".collab-seen.json.tmp");
+    // One temp name per process, not one for the machine. The lock above is a
+    // `static` — it orders threads inside one process and cannot see the other
+    // watchers, and there are usually several. They all staged through the same
+    // scratch file, so one process's rename pulled the file out from under
+    // another's, whose rename then failed and reported it could not record its
+    // place. Measured before the fix: six concurrent writers, ~150 failures each
+    // out of 300. After: zero.
+    let tmp = config::home(&format!(".collab-seen.json.{}.tmp", std::process::id()));
     let ok = serde_json::to_string(&map)
         .ok()
         .and_then(|t| std::fs::write(&tmp, t).ok())
