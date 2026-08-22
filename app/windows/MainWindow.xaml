@@ -109,7 +109,7 @@
         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
-        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" Grid.Column="0">
         <Button x:Name="TabChat" Content="Chat" Click="OnChat" Padding="14,5" Margin="0,0,6,0"/>
@@ -122,8 +122,10 @@
       <Button x:Name="AttachBtn" Grid.Column="4" Content="&#xE723;" FontFamily="Segoe MDL2 Assets"
               Click="OnAttach" Padding="9,4" Margin="0,0,6,0" ToolTip="Send a file"/>
       <Button x:Name="ChannelsBtn" Grid.Column="5" Content="&#xE8FD;" FontFamily="Segoe MDL2 Assets"
-              Click="OnChannels" Padding="9,4" Margin="0,0,10,0" ToolTip="Channels"/>
-      <StackPanel Orientation="Horizontal" Grid.Column="6" VerticalAlignment="Center">
+              Click="OnChannels" Padding="9,4" Margin="0,0,6,0" ToolTip="Channels"/>
+      <Button x:Name="UpdateBtn" Grid.Column="6" Content="&#xE895;" FontFamily="Segoe MDL2 Assets"
+              Click="OnUpdate" Padding="9,4" Margin="0,0,10,0" ToolTip="Check for updates"/>
+      <StackPanel Orientation="Horizontal" Grid.Column="7" VerticalAlignment="Center">
         <Ellipse x:Name="Dot" Width="8" Height="8" Margin="0,0,6,0"/>
         <TextBlock x:Name="ServerLabel" VerticalAlignment="Center" FontSize="12"/>
       </StackPanel>

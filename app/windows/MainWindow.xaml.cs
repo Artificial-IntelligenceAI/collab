@@ -53,7 +53,7 @@ namespace Collab
                 t.CaretBrush = Sol.FgEm;
             }
             SendBtn.Background = Sol.Blue; SendBtn.Foreground = Sol.OnAccent; SendBtn.BorderBrush = Sol.Blue;
-            foreach (var b in new[] { AttachBtn, ChannelsBtn })
+            foreach (var b in new[] { AttachBtn, ChannelsBtn, UpdateBtn })
             {
                 b.Background = Sol.BgAlt; b.Foreground = Sol.Fg; b.BorderBrush = Sol.Rule;
             }
@@ -294,6 +294,8 @@ namespace Collab
             Footer.Text = reply.Split('\n')[0].Trim();
             Footer.Foreground = reply.StartsWith("collab:") ? Sol.Red : Sol.Green;
         }
+
+        void OnUpdate(object s, RoutedEventArgs e) => Updater.CheckForUpdates(this);
 
         void OnChannels(object s, RoutedEventArgs e)
         {
