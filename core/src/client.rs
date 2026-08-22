@@ -548,6 +548,50 @@ pub fn users_cmd(channel: Option<&str>, all: bool) {
 /// anybody here knows. Somebody set up but silent cannot be mentioned yet, so
 /// the refusal lists who can be, rather than leaving the sender guessing which
 /// half of the name was wrong.
+/// What to say after a post that named somebody, or nothing when it named
+/// nobody. An `@` narrows *delivery*, not merely emphasis: a watcher never
+/// emits a message addressed elsewhere, so from the sender's side addressing
+/// three people and addressing the whole channel look identical — both say
+/// "sent". Two sessions paid for that today, each posting a status update to
+/// one name and assuming the rest had seen it.
+///
+/// The message is still on the channel and still comes back from the window,
+/// the log and `collab_recent`. It is the *stream* it stays out of, which is
+/// the only place an AI session finds out about anything unasked.
+pub fn reach_note(channel: &str, text: &str) -> Option<String> {
+    let wanted = crate::msg::mentions_in(text);
+    if wanted.is_empty() {
+        return None;
+    }
+    let named: Vec<String> = wanted.iter().map(|w| format!("@{w}")).collect();
+    // Not the sender. A watcher drops what its own session sent, so the person
+    // posting was never going to see it in their stream and saying they will not
+    // is noise dressed as a warning.
+    let mine: Vec<String> = config::my_names_on(channel)
+        .iter()
+        .map(|n| crate::msg::addressable(n))
+        .collect();
+    let others: Vec<String> = users_on(channel)
+        .iter()
+        .map(|u| crate::msg::addressable(&u.name))
+        .filter(|n| !wanted.contains(n) && !mine.contains(n))
+        .map(|n| format!("@{n}"))
+        .collect();
+    if others.is_empty() {
+        return None; // it named everyone there; nothing was narrowed
+    }
+    let mut rest = others;
+    rest.sort();
+    rest.dedup();
+    Some(format!(
+        "delivered to {} only. {} will not see it in their watcher — it is on \
+         #{channel} and readable, but nothing will tell them it is there. \
+         For something everyone should see, name nobody.",
+        named.join(", "),
+        rest.join(", ")
+    ))
+}
+
 pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
     let wanted = crate::msg::mentions_in(text);
     if wanted.is_empty() {
@@ -600,6 +644,7 @@ pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
         eprintln!("collab: {e}");
         std::process::exit(2);
     }
+    let text_for_note = text.clone();
     let m = Msg {
         kind: KIND_CHAT.into(),
         via: if via_ai {
@@ -610,8 +655,12 @@ pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
         text,
         ..Default::default()
     };
+    let note = reach_note(&channel, &text_for_note);
     if let Err(e) = send_full(&channel, channels::display_for(&channel).as_deref(), m) {
         fail(e)
+    }
+    if let Some(n) = note {
+        eprintln!("collab: {n}");
     }
 }
 

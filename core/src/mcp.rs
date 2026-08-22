@@ -541,7 +541,10 @@ you subscribe again."
                 posting_name(session_name).as_deref(),
                 Msg { kind: KIND_CHAT.into(), via: ACTOR_AI.into(), text: m.clone(), ..Default::default() },
             ) {
-                Ok(()) => text(format!("sent: {m}")),
+                Ok(()) => match client::reach_note(&to, &m) {
+                    Some(n) => text(format!("sent: {m}\n\n{n}")),
+                    None => text(format!("sent: {m}")),
+                },
                 Err(e) => text(format!(
                     "could not reach the collab server at {} ({e}) — the other session did NOT get this",
                     config::addr())),
