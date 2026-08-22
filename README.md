@@ -427,8 +427,18 @@ P/Invoke to a function that is not an export, which had stopped notifications
 from ever working; and a watcher that recorded its place before delivering,
 which silently lost a message whenever its reader went away.
 
-What is still missing on Windows is the **app**. There is a command line and
-there are notifications; there is no window. That is the remaining gap.
+**Installing on Windows.** `./windows-setup.sh` builds `collab-setup.zip` — the
+app, the command line in `bin/`, the icon and a readable installer. Hand it over;
+they extract it and double-click `Install.cmd`. It installs per user under
+`%LOCALAPPDATA%\Programs\Collab`, so it never asks for an administrator, makes
+Start Menu and Desktop shortcuts, and appears in Installed Apps.
+
+The uninstaller leaves `~/.collab-*` alone. Those are channel keys and message
+history, and removing a program is not consent to delete the conversations.
+
+Verified on a Windows 11 ARM VM as a genuine first install and a full removal:
+files, both shortcuts, the Installed Apps entry, the command line running from
+where it landed, and — after uninstalling — everything gone except the keys.
 
 ## Files
 
