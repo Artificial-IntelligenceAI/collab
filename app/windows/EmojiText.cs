@@ -137,6 +137,22 @@ namespace Collab
 
         static readonly FontFamily Mono = new FontFamily("Cascadia Mono, Consolas, Courier New");
 
+        /// Who this window is, so the mention aimed at it can be picked out of the
+        /// ones aimed at everybody else. Set once by the main window; empty just
+        /// means every mention is drawn the same, which is what happened before.
+        public static string Me = "";
+
+        /// A name written after an @, trimmed of the punctuation that ends a
+        /// sentence rather than a name. Mirrors the Mac's reading of the same
+        /// text so both windows agree on where a mention stops.
+        static string MentionName(string word)
+        {
+            var n = word.TrimStart('@');
+            int end = n.Length;
+            while (end > 0 && !(char.IsLetterOrDigit(n[end - 1]) || "-_./".IndexOf(n[end - 1]) >= 0)) end--;
+            return n.Substring(0, end).ToLowerInvariant();
+        }
+
         static IEnumerable<Inline> Build(string text, double fontSize)
         {
             var made = new List<Inline>();
@@ -166,6 +182,34 @@ namespace Collab
                 if (buffer.Length == 0) return;
                 made.Add(Style(new Run(buffer.ToString())));
                 buffer.Clear();
+            }
+
+            // Mentions are coloured only outside code. A live @name reaches
+            // somebody and a backticked one addresses nobody, so drawing them
+            // alike would hide the only difference that matters.
+            if (!seg.Code && text.IndexOf('@') >= 0)
+            {
+                int i = 0;
+                while (i < text.Length)
+                {
+                    bool atWordStart = i == 0 || char.IsWhiteSpace(text[i - 1]);
+                    if (text[i] != '@' || !atWordStart) { buffer.Append(text[i]); i++; continue; }
+                    int end = i + 1;
+                    while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+                    var word = text.Substring(i, end - i);
+                    var name = MentionName(word);
+                    if (name.Length == 0) { buffer.Append(text[i]); i++; continue; }
+                    FlushText();
+                    var run = Style(new Run(word));
+                    run.FontWeight = FontWeights.SemiBold;
+                    bool mine = Me.Length > 0 && name == Me.ToLowerInvariant();
+                    run.Foreground = mine ? Sol.OnAccent : Sol.Blue;
+                    if (mine) run.Background = Sol.Blue;
+                    made.Add(run);
+                    i = end;
+                }
+                FlushText();
+                return;
             }
 
             var e = StringInfo.GetTextElementEnumerator(text);

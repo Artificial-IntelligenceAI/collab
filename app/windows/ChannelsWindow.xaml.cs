@@ -90,6 +90,7 @@ namespace Collab
                 var chosen = NamePrompt.Ask(this, name, Core.DisplayOn(name) ?? Core.MachineName);
                 if (chosen == null) return;
                 Core.Run($"channel name \"{name}\" \"{chosen}\"");
+                MainWindow.ForgetMe();
                 Reload();
             };
 
@@ -184,6 +185,7 @@ namespace Collab
             var chosen = NamePrompt.Ask(this, channel, Core.MachineName);
             if (!string.IsNullOrWhiteSpace(chosen))
                 Core.Run($"channel name \"{channel}\" \"{chosen}\"");
+                MainWindow.ForgetMe();
         }
 
         void OnDone(object s, RoutedEventArgs e) => Close();

@@ -14,6 +14,14 @@ namespace Collab
         string view = "chat";
         string channel = "";
         List<string> names = new();     // who can be @mentioned here
+        static string meChannel = "";   // channel EmojiText.Me was computed for
+
+        /// Call after anything that changes what this machine is called on a
+        /// channel. Without it a rename leaves the cache holding the old name,
+        /// and your own mentions stop standing out until you switch channels
+        /// and back — a staleness with no symptom except the thing quietly not
+        /// working.
+        public static void ForgetMe() => meChannel = "";
 
         public MainWindow()
         {
@@ -105,6 +113,21 @@ namespace Collab
                             || m.Target.Contains(q, StringComparison.OrdinalIgnoreCase)
                             || m.FileName.Contains(q, StringComparison.OrdinalIgnoreCase))
                 .ToList();
+
+            // Who this window answers to on this channel, so a mention aimed at
+            // it is drawn differently from one aimed at somebody else. The
+            // display name wins where there is one, the same order the CLI uses.
+            //
+            // Cached per channel: both of those calls spawn the CLI, and this
+            // runs on every redraw — which is every arriving message. The name
+            // only changes when the channel does, or when somebody renames
+            // themselves on it, and that path calls Reload with meCached
+            // cleared.
+            if (meChannel != channel)
+            {
+                EmojiText.Me = Addressable(Core.DisplayOn(channel) ?? Core.MachineName);
+                meChannel = channel;
+            }
 
             // Who can be addressed here, for the @ suggestions.
             names = core.Messages.Where(m => m.Channel == channel)
