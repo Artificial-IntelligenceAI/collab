@@ -133,6 +133,26 @@ fn tools() -> Value {
 /// Refusing is the point. An unjoined chat posts as the machine, onto the
 /// machine's default channel — so every chat on it becomes one voice on one
 /// heap, which is the mess this exists to prevent.
+/// When this process started. A binary modified after that is a binary this
+/// process is not running.
+static STARTED: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+/// An MCP server keeps running whatever binary it was launched with, so every
+/// rebuild leaves it behind — and the refusals it then produces describe bugs
+/// already fixed on disk. Four chats spent yesterday working this out by
+/// reading process tables. It is one file timestamp.
+fn stale_note() -> Option<String> {
+    let started = *STARTED.get()?;
+    let exe = std::env::current_exe().ok()?;
+    let built = std::fs::metadata(&exe).ok()?.modified().ok()?;
+    (built > started).then(|| {
+        "\n\nNote: collab has been rebuilt since this session started, so this chat is \
+running the older one. Anything surprising here may already be fixed — restart your \
+Claude client to pick it up."
+            .to_string()
+    })
+}
+
 fn needs_join() -> String {
     // Which of the two reasons this is, said outright. They need different
     // answers — one is retry, the other is that retrying cannot work — and
@@ -153,8 +173,9 @@ it and stay fixed."
         "REFUSED: this chat has not joined yet. Call collab_join with a name and the channels \
 to listen to, then send this again. Nothing was posted.\n\nChannels available here: {}\n\nThey \
 must be from that list. A channel only works if both machines hold its key, so one that is not \
-listed cannot be reached from here at all.{why}",
-        channel_list()
+listed cannot be reached from here at all.{why}{}",
+        channel_list(),
+        stale_note().unwrap_or_default()
     )
 }
 
@@ -210,6 +231,7 @@ fn text(s: String) -> Value {
 }
 
 pub fn run() {
+    let _ = STARTED.set(std::time::SystemTime::now());
     // One `collab mcp` process is spawned per chat, so a name held here is a
     // per-chat identity by construction — nothing to register, nothing to expire.
     let mut session_name = Live::default();
@@ -456,16 +478,18 @@ renames every other one, and their messages go out signed by it. That has happen
 already. A refusal is recoverable; a message in the record under the wrong name is not.\n\n\
 Reading works fully: collab_recent, collab_changes, collab_users, collab_files and \
 collab_get_file need no join and are unaffected. To post from here, tell the person you are \
-working with — it needs a change at our end, not at yours.",
-                            describe(&ok)
+working with — it needs a change at our end, not at yours.{}",
+                            describe(&ok),
+                            stale_note().unwrap_or_default()
                         ));
                     }
                     text(format!(
                         "you are \"{chosen}\" on {channels} for this chat (on {}). {}\n\nNothing \
 will notify you of new messages — call collab_recent to see them. If your harness can stream a \
-background command to you, `collab watch` is what makes them arrive unasked.",
+background command to you, `collab watch` is what makes them arrive unasked.{}",
                         config::name(),
-                        describe(&ok)
+                        describe(&ok),
+                        stale_note().unwrap_or_default()
                     ))
                 }
             }
