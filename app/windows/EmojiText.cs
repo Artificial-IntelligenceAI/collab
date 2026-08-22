@@ -1,8 +1,13 @@
-// Puts colour emoji into an ordinary TextBlock.
+// Puts colour emoji into an ordinary TextBlock, including the joined ones.
 //
 // Rather than write a text control — which would mean reimplementing word
 // wrapping, selection and hit testing — the string is split into runs and each
 // emoji becomes an inline image. WPF keeps doing the layout it is good at.
+//
+// A joined emoji is several codepoints that the font turns into one glyph:
+// 👨‍👩‍👧 is man, zero-width joiner, woman, joiner, girl, and 👍🏽 is a thumb plus a
+// skin tone. The font's GSUB table says which sequences collapse; without
+// applying it the parts each render separately, which is what this used to do.
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -48,6 +53,16 @@ namespace Collab
             }
         }
 
+        /// One codepoint of the source, with where it came from, so a run that
+        /// turns out not to be an emoji can be put back as the original text.
+        readonly struct Unit
+        {
+            public readonly int Cp, Index, Length;
+            public readonly ushort? Glyph;
+            public Unit(int cp, int index, int length, ushort? glyph)
+            { Cp = cp; Index = index; Length = length; Glyph = glyph; }
+        }
+
         static IEnumerable<Inline> Build(string text, double fontSize)
         {
             var made = new List<Inline>();
@@ -55,8 +70,17 @@ namespace Collab
             if (!EmojiFont.Available) { made.Add(new Run(text)); return made; }
 
             double size = fontSize > 0 ? fontSize : 13;
-            var buffer = new System.Text.StringBuilder();
 
+            var units = new List<Unit>();
+            for (int i = 0; i < text.Length;)
+            {
+                int cp = char.ConvertToUtf32(text, i);
+                int len = char.IsSurrogatePair(text, i) ? 2 : 1;
+                units.Add(new Unit(cp, i, len, EmojiFont.Glyph(cp)));
+                i += len;
+            }
+
+            var buffer = new System.Text.StringBuilder();
             void FlushText()
             {
                 if (buffer.Length == 0) return;
@@ -64,34 +88,58 @@ namespace Collab
                 buffer.Clear();
             }
 
-            for (int i = 0; i < text.Length;)
+            for (int i = 0; i < units.Count;)
             {
-                int cp = char.ConvertToUtf32(text, i);
-                int width = char.IsSurrogatePair(text, i) ? 2 : 1;
+                var u = units[i];
 
-                // Joiners and variation selectors have no glyph of their own and
-                // would draw as boxes. Dropping them means a joined sequence
-                // renders as its parts rather than as one picture — a known
-                // limit, and better than a row of squares.
-                if (cp == 0x200D || cp == 0xFE0F || cp == 0xFE0E) { i += width; continue; }
-
-                var img = EmojiFont.Render(cp, size);
-                if (img == null) { buffer.Append(text, i, width); i += width; continue; }
-
-                FlushText();
-                made.Add(new InlineUIContainer(new Image
+                // Try the longest ligature starting here first, so a family is
+                // one picture rather than three people.
+                if (u.Glyph is ushort g && EmojiFont.StartsLigature(g))
                 {
-                    Source = img,
-                    Width = size * 1.25,
-                    Height = size * 1.25,
-                    Stretch = Stretch.Uniform,
-                    Margin = new Thickness(0, 0, 0, -size * 0.2),
-                })
-                { BaselineAlignment = BaselineAlignment.Baseline });
-                i += width;
+                    var run = new List<ushort>();
+                    for (int k = i; k < units.Count && units[k].Glyph is ushort gk; k++) run.Add(gk);
+                    var hit = EmojiFont.Ligate(run, 0);
+                    if (hit is (ushort lig, int used) && EmojiFont.HasColour(lig))
+                    {
+                        FlushText();
+                        made.Add(Picture(lig, size));
+                        i += used;
+                        continue;
+                    }
+                }
+
+                // A joiner or variation selector that did not form a ligature
+                // has no glyph worth drawing and would show as a box.
+                if (u.Cp == 0x200D || u.Cp == 0xFE0F || u.Cp == 0xFE0E) { i++; continue; }
+
+                if (u.Glyph is ushort single && EmojiFont.HasColour(single))
+                {
+                    FlushText();
+                    made.Add(Picture(single, size));
+                    i++;
+                    continue;
+                }
+
+                buffer.Append(text, u.Index, u.Length);
+                i++;
             }
             FlushText();
             return made;
+        }
+
+        static Inline Picture(ushort glyph, double size)
+        {
+            var img = EmojiFont.RenderGlyph(glyph, size);
+            if (img == null) return new Run("");
+            return new InlineUIContainer(new Image
+            {
+                Source = img,
+                Width = size * 1.25,
+                Height = size * 1.25,
+                Stretch = Stretch.Uniform,
+                Margin = new Thickness(0, 0, 0, -size * 0.2),
+            })
+            { BaselineAlignment = BaselineAlignment.Baseline };
         }
     }
 }
