@@ -2,7 +2,7 @@
 //!
 //! Neither platform lets a plain binary do this: macOS attributes a
 //! notification to an application bundle and Windows to a registered
-//! AppUserModelID, so the popup comes from Collab.app or collab-notify.exe. If
+//! AppUserModelID, so the popup comes from Collab.app or Collab.exe. If
 //! neither is present collab stays quiet rather than falling back to something
 //! that pops up under another app's name.
 use crate::config;
@@ -45,9 +45,13 @@ pub fn find_notifier() -> Option<PathBuf> {
         // the way Collab.app serves the command line on the Mac. That ordering
         // was swapped and not verified before the machine went to sleep, so it
         // waits: an unverified notifier is worse than a large one.
-        candidates.push(dir.join("collab-notify.exe"));
-        candidates.push(dir.join("notify/collab-notify.exe"));
+        // The app is the notifier on Windows, as Collab.app is on the Mac. It
+        // takes --toast, raises one and exits without a window. There used to
+        // be a standalone collab-notify.exe as well; it carried its own copy of
+        // the .NET runtime — 94 MB — to say the same sentence the app already
+        // says, and nothing called it once the app could.
         candidates.push(dir.join("..").join("Collab.exe"));
+        candidates.push(dir.join("Collab.exe"));
     }
     // Never point at ourselves. Windows filenames are case-insensitive, so
     // `Collab.exe` beside the command line matches `collab.exe` — the CLI would
@@ -304,7 +308,7 @@ pub fn test_notify() {
 #[cfg(not(target_os = "macos"))]
 pub fn test_notify() {
     let Some(h) = find_notifier() else {
-        eprintln!("collab: no notifier installed — put collab-notify.exe next to collab.exe");
+        eprintln!("collab: no notifier installed — Collab.exe should be in the folder above this one");
         std::process::exit(1);
     };
     println!("using {}", h.display());

@@ -8,7 +8,7 @@
 # the root of a volume.
 #
 #   dist.noindex/macos/    collab (Rust core) + Collab.app (menu bar app + window)
-#   dist.noindex/windows/  collab.exe + collab-notify.exe + collab.png
+#   dist.noindex/windows/  Collab.exe + bin/collab.exe + collab.png
 #
 # The Mac half needs Rust and Xcode's Swift. The Windows half needs the
 # x86_64-pc-windows-gnu Rust target and the .NET SDK, and is skipped with a
@@ -39,11 +39,6 @@ if app/windows/build.sh "$PWD/dist.noindex/windows" >/dev/null 2>&1; then
   echo "  built dist.noindex/windows/Collab.exe"
 else
   echo "  SKIPPED Collab.exe — needs: brew install dotnet" >&2
-fi
-if notify/windows/build.sh "$PWD/dist.noindex/windows" >/dev/null 2>&1; then
-  echo "  built dist.noindex/windows/collab-notify.exe"
-else
-  echo "  SKIPPED collab-notify.exe — needs: brew install dotnet" >&2
 fi
 
 echo

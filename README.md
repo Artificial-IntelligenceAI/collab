@@ -412,9 +412,8 @@ Not finished, but it builds. The Rust core cross-compiles once the toolchain is 
     rustup target add x86_64-pc-windows-gnu && brew install mingw-w64
 
 Verified rather than assumed: that produces a `PE32+ executable (console) x86-64`,
-and `build.sh` stops skipping the Windows half. `notify/windows` is the C# toast
-helper and builds too.
-
+and `build.sh` stops skipping the Windows half. Notifications are raised by the
+app itself, as on the Mac — there is no separate helper.
 Both have now been **run**, on a Windows 11 ARM VM, and the following are
 verified rather than assumed: messages in both directions across a real network,
 encrypted; channel keys carried between machines; live streaming with backlog
@@ -463,7 +462,6 @@ where it landed, and — after uninstalling — everything gone except the keys.
 
     app/mac/Sources/     the menu bar app, its window, and the channel panel
     app/mac/icon.swift   generates the icon both platforms use
-    notify/windows/      C# toast helper (unverified)
 
 ## License
 

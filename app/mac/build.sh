@@ -12,7 +12,7 @@ if [ ! -f "$ICONS/collab.icns" ] || [ "$ICONS/icon.swift" -nt "$ICONS/collab.icn
     swiftc -O -o ./.mkicon icon.swift
     ./.mkicon collab.iconset >/dev/null
     iconutil -c icns collab.iconset -o collab.icns
-    cp collab.iconset/icon_256x256.png ../../notify/windows/collab.png
+    cp collab.iconset/icon_256x256.png ../windows/collab.png
     rm -rf collab.iconset ./.mkicon )
 fi
 

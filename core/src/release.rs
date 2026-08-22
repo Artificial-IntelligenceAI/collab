@@ -396,7 +396,6 @@ pub fn install(dir: &Path) -> Result<Vec<String>, String> {
         for (name, dest) in [
             ("Collab.exe", root.clone()),
             ("collab.png", root.clone()),
-            ("collab-notify.exe", beside.clone()),
         ] {
             let from = dir.join(name);
             let (true, Some(into)) = (from.exists(), dest) else {
