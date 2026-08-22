@@ -24,6 +24,8 @@ const USAGE: &str = "usage:
   collab serve                          run the server (one machine only)
   collab watch [-json] [-notify] [-all] [-since N] [-no-save]
                                         stream messages — this is what Monitor runs
+                                        -all = every channel on this machine, addressed
+                                        to anyone; not only what you subscribed to
   collab post \"message\" [-ai] [-c chan] send a chat message
   collab change -action edited -target \"ServerScriptService/Shop\" \"what changed\" [-c chan]
   collab log [-changes] [-all]          history

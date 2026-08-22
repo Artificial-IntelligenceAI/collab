@@ -151,6 +151,15 @@ Claude, and every chat with your Claude besides. So:
   not merely *that machine*: a sibling chat on the same machine is someone else, and
   worth hearing. Nothing is suppressed anywhere without a session id — a plain terminal,
   or the app under launchd, sees everything.
+- **`collab watch -all` ignores all of that**, and it is worth knowing before reaching for
+  it. It does two unrelated things under one name: it connects to **every channel this
+  machine holds a key for** — not the ones this chat subscribed to, the session is not
+  consulted at all — and it switches off the addressed-elsewhere filter, so messages meant
+  for other people arrive too. That is exactly right for the app, which is drawing a window
+  over everything and runs `-all -since 0`. It is rarely what a chat wants: a session
+  listening to one channel will start receiving rooms it was never invited to. Nothing
+  leaves the machine — the keys were already on disk, and it is the same person — but a
+  flag whose name suggests "all messages" in fact means "all channels".
 - **The machine is recorded either way**, and shown beside a chosen name. "shop" says
   nothing about whose Claude it is, and that is the one question this tool exists to
   answer.
