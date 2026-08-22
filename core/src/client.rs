@@ -563,7 +563,11 @@ pub fn reach_note(channel: &str, text: &str) -> Option<String> {
     if wanted.is_empty() {
         return None;
     }
-    let named: Vec<String> = wanted.iter().map(|w| format!("@{w}")).collect();
+    // Backticked, because this note is quoted. The natural way to discuss a
+    // delivery report is to paste the list it just handed you — and a bare
+    // `@name` in that paste is a mention, so quoting "who will not see this"
+    // silently delivers to exactly them. Written this once and did it twice.
+    let named: Vec<String> = wanted.iter().map(|w| format!("`@{w}`")).collect();
     // Not the sender. A watcher drops what its own session sent, so the person
     // posting was never going to see it in their stream and saying they will not
     // is noise dressed as a warning.
@@ -575,7 +579,7 @@ pub fn reach_note(channel: &str, text: &str) -> Option<String> {
         .iter()
         .map(|u| crate::msg::addressable(&u.name))
         .filter(|n| !wanted.contains(n) && !mine.contains(n))
-        .map(|n| format!("@{n}"))
+        .map(|n| format!("`@{n}`"))
         .collect();
     if others.is_empty() {
         return None; // it named everyone there; nothing was narrowed
