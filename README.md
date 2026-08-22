@@ -378,7 +378,7 @@ enough.
 
 Nothing is checked or downloaded until both halves exist:
 
-    update_url = https://…/latest      # in ~/.collab-config
+    update_url = https://github.com/Artificial-IntelligenceAI/collab/releases/latest/download
     PUBLIC_KEY                         # in core/src/release.rs
 
 Check the pair once, when it is first set up:
