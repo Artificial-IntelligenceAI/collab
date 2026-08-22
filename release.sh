@@ -17,14 +17,28 @@ rm -rf "$OUT"; mkdir -p "$OUT/macos-arm64" "$OUT/windows-x64"
 
 cp dist.noindex/macos/collab "$OUT/macos-arm64/collab"
 tar -czf "$OUT/macos-arm64/Collab.app.tar.gz" -C dist.noindex/macos Collab.app
-for f in collab.exe collab-notify.exe collab.png; do
-  [ -f "dist.noindex/windows/$f" ] && cp "dist.noindex/windows/$f" "$OUT/windows-x64/$f"
-done
-rmdir "$OUT/windows-x64" 2>/dev/null || true
+# The Windows side, in the layout it installs to: the app at the top, the
+# command line in bin/. Shipping collab.exe alone — which this did — would send
+# an update carrying no app at all.
+mkdir -p "$OUT/windows-x64/bin"
+[ -f dist.noindex/windows/Collab.exe ]     && cp dist.noindex/windows/Collab.exe     "$OUT/windows-x64/Collab.exe"
+[ -f dist.noindex/windows/bin/collab.exe ] && cp dist.noindex/windows/bin/collab.exe "$OUT/windows-x64/bin/collab.exe"
+[ -f dist.noindex/windows/collab.png ]     && cp dist.noindex/windows/collab.png     "$OUT/windows-x64/collab.png"
+[ -f "$OUT/windows-x64/Collab.exe" ] || { echo "collab: the Windows app is missing from dist — refusing to cut a release without it" >&2; exit 1; }
 
 printf 'paste the release private key (it will not be echoed to history): '
 core/target/release/collab release sign "$OUT" -version "$VERSION" -notes "$NOTES" -key -
 
 echo
-echo "upload the contents of $OUT/ to the release, keeping the folder layout."
-echo "collab-release.json and its .sig must sit at the top."
+# The signed manifest names paths; a release host wants flat asset names. Stage
+# both: the tree is what was signed, upload/ is what gets uploaded.
+UP="$OUT/upload"
+mkdir -p "$UP"
+cp "$OUT/collab-release.json" "$OUT/collab-release.json.sig" "$UP/"
+( cd "$OUT" && find macos-arm64 windows-x64 -type f 2>/dev/null | while read -r f; do
+    cp "$f" "upload/$(echo "$f" | tr '/' '-')"
+  done )
+echo
+echo "signed. upload every file in $UP/ as release assets — the names are flat"
+echo "on purpose, and collab-release.json and its .sig must be among them."
+ls -1 "$UP" | sed 's/^/  /'

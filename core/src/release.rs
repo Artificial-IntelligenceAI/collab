@@ -258,13 +258,23 @@ pub fn check() -> Result<Available, String> {
     Ok(Available { manifest, base })
 }
 
+/// A manifest path as it is uploaded: flat, because release hosts rarely give
+/// you directories.
+pub fn asset_name(path: &str) -> String {
+    path.replace('/', "-")
+}
+
 pub fn platform_files() -> Vec<&'static str> {
     if cfg!(target_os = "macos") {
         vec!["macos-arm64/collab", "macos-arm64/Collab.app.tar.gz"]
     } else {
+        // Matches the installed layout: the app at the top, the command line
+        // in bin\, because the two cannot share a directory on a
+        // case-insensitive filesystem. collab-notify.exe is deliberately absent
+        // — the app raises its own toasts and nothing calls the helper.
         vec![
-            "windows-x64/collab.exe",
-            "windows-x64/collab-notify.exe",
+            "windows-x64/Collab.exe",
+            "windows-x64/bin/collab.exe",
             "windows-x64/collab.png",
         ]
     }
@@ -283,19 +293,31 @@ pub fn download(av: &Available) -> Result<PathBuf, String> {
         let Some(want) = av.manifest.files.get(name) else {
             continue; // a release need not carry every platform
         };
-        let data = fetch(&format!("{}/{name}", av.base))?;
+        // GitHub release assets are a flat namespace — an asset name cannot
+        // contain a slash — while the manifest names paths, because the paths
+        // are what say where each file installs. So the manifest keeps the
+        // path and the URL flattens it: windows-x64/bin/collab.exe is uploaded
+        // as windows-x64-bin-collab.exe. release.sh stages both layouts.
+        let data = fetch(&format!("{}/{}", av.base, asset_name(name)))?;
         if data.len() as u64 != want.size || crate::files::hash_bytes(&data) != want.sha256 {
             return Err(format!(
                 "{name} does not match the signed manifest — nothing installed"
             ));
         }
-        let out = dir.join(crate::files::safe_component(
-            Path::new(name)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .as_ref(),
-        ));
+        // Keep the layout below the platform folder. Flattening to the file
+        // name collapses windows-x64/Collab.exe and windows-x64/bin/collab.exe
+        // onto one another, because Windows filenames are case-insensitive —
+        // one silently overwrites the other and the update installs the wrong
+        // binary over the wrong thing.
+        let rel: PathBuf = Path::new(name)
+            .components()
+            .skip(1) // the platform folder
+            .map(|c| crate::files::safe_component(c.as_os_str().to_string_lossy().as_ref()))
+            .collect();
+        let out = dir.join(&rel);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         std::fs::write(&out, &data).map_err(|e| e.to_string())?;
     }
     Ok(dir)
@@ -310,8 +332,10 @@ pub fn download(av: &Available) -> Result<PathBuf, String> {
 pub fn install(dir: &Path) -> Result<Vec<String>, String> {
     let mut done = Vec::new();
 
+    // Where the command line lives in a release, which is not where it lives
+    // on the Mac: Windows keeps it in bin\ beside the app.
     let bin = dir.join(if cfg!(target_os = "windows") {
-        "collab.exe"
+        "bin/collab.exe"
     } else {
         "collab"
     });
@@ -354,17 +378,39 @@ pub fn install(dir: &Path) -> Result<Vec<String>, String> {
         done.push(apps.join("Collab.app").display().to_string());
     }
 
-    for extra in ["collab-notify.exe", "collab.png"] {
-        let from = dir.join(extra);
-        if from.exists() {
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(parent) = exe.parent() {
-                    let to = parent.join(extra);
-                    let _ = std::fs::remove_file(&to);
-                    if std::fs::copy(&from, &to).is_ok() {
-                        done.push(to.display().to_string());
-                    }
-                }
+    // The Windows app and the icon sit one level above the command line, so
+    // they go to the install root rather than beside the running binary.
+    // Getting this wrong would drop a 149 MB app inside bin\ and leave the
+    // real one untouched.
+    if let Ok(exe) = std::env::current_exe() {
+        let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+        let beside = exe.parent().map(|p| p.to_path_buf());
+        let root = if beside
+            .as_ref()
+            .is_some_and(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("bin")))
+        {
+            beside.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf())
+        } else {
+            beside.clone()
+        };
+        for (name, dest) in [
+            ("Collab.exe", root.clone()),
+            ("collab.png", root.clone()),
+            ("collab-notify.exe", beside.clone()),
+        ] {
+            let from = dir.join(name);
+            let (true, Some(into)) = (from.exists(), dest) else {
+                continue;
+            };
+            let to = into.join(name);
+            // A running app holds its own file; rename it aside as with the
+            // command line rather than failing the whole update.
+            if to.exists() {
+                let _ = std::fs::rename(&to, to.with_extension("old"));
+                let _ = std::fs::remove_file(&to);
+            }
+            if std::fs::copy(&from, &to).is_ok() {
+                done.push(to.display().to_string());
             }
         }
     }
