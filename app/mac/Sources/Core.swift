@@ -100,6 +100,10 @@ private struct Event: Decodable {
     var from: Int64?
     var addr: String?
     var error: String?
+    /// Which channel this status is about. The watcher holds one connection per
+    /// channel and reports on each separately; without this the reports are
+    /// indistinguishable and the last one wins.
+    var channel: String?
 }
 
 private struct Settings: Decodable {
@@ -116,6 +120,26 @@ final class Core: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var wasDisconnected = false
     @Published private(set) var statusDetail: String?
+    /// Connection state per channel, because there is one connection per channel
+    /// and they fail independently. Collapsing them into a single flag meant a
+    /// channel nobody was looking at — a stale key, a room left over from
+    /// testing — painted the whole window disconnected while every message the
+    /// person sent went through normally.
+    @Published private(set) var channelUp: [String: Bool] = [:]
+    /// The channel the window is showing. Set by the view; the status light
+    /// follows it, so switching rooms shows that room's connection.
+    @Published var watching: String = "" {
+        didSet {
+            guard watching != oldValue else { return }
+            if let up = channelUp[watching] { connected = up; statusDetail = nil }
+        }
+    }
+    /// Channels that are down other than the one being viewed — worth saying
+    /// out loud, because the alternative is a green light and a room that is
+    /// quietly receiving nothing.
+    var othersDown: [String] {
+        channelUp.filter { $0.key != watching && !$0.value }.keys.sorted()
+    }
     @Published private(set) var me = ""
     /// What this machine calls itself on each channel. The composer footer has
     /// to read from this rather than from `me`, or it tells you that you are
@@ -329,8 +353,15 @@ final class Core: ObservableObject {
         case "status":
             let up = ev.connected ?? false
             if !up { wasDisconnected = true }
-            connected = up
-            statusDetail = ev.error
+            if let ch = ev.channel, !ch.isEmpty {
+                channelUp[ch] = up
+                // Only the channel being looked at drives the light. A report
+                // about a different room is recorded, not displayed.
+                if ch == watching { connected = up; statusDetail = ev.error }
+            } else {
+                connected = up
+                statusDetail = ev.error
+            }
             if let addr = ev.addr { serverAddr = addr }
         case "msg":
             guard let m = ev.msg, !seen.contains(m.seq) else { return }

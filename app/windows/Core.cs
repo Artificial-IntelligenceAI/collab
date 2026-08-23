@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -114,6 +115,27 @@ namespace Collab
             DisplayNames.TryGetValue(channel, out var d) && !string.IsNullOrWhiteSpace(d) ? d : Me;
         public string ServerAddr { get; private set; } = "";
         public bool Connected { get; private set; }
+
+        /// Connection state per channel — see the status handler for why.
+        public readonly Dictionary<string, bool> ChannelUp = new();
+
+        /// The channel the window is showing; the light follows it.
+        string watching = "";
+        public string Watching
+        {
+            get => watching;
+            set
+            {
+                if (watching == value) return;
+                watching = value;
+                if (ChannelUp.TryGetValue(value, out var up)) Connected = up;
+            }
+        }
+
+        /// Channels down other than the one on screen. Worth naming, because the
+        /// alternative is a green light over a room receiving nothing.
+        public List<string> OthersDown =>
+            ChannelUp.Where(kv => kv.Key != watching && !kv.Value).Select(kv => kv.Key).OrderBy(n => n).ToList();
         public string? Fatal { get; private set; }
 
         public event Action? Changed;
@@ -229,7 +251,19 @@ namespace Collab
                     var type = d.TryGetProperty("type", out var t) ? t.GetString() : null;
                     if (type == "status")
                     {
-                        Connected = d.TryGetProperty("connected", out var c) && c.GetBoolean();
+                        // Per channel, because there is one connection per channel
+                        // and they fail independently. One flag overwritten by
+                        // whichever report arrived last meant a stale channel
+                        // nobody was in painted the whole window disconnected
+                        // while every message still sent.
+                        var up = d.TryGetProperty("connected", out var c) && c.GetBoolean();
+                        var ch = d.TryGetProperty("channel", out var chv) ? chv.GetString() ?? "" : "";
+                        if (ch.Length > 0)
+                        {
+                            ChannelUp[ch] = up;
+                            if (ch == Watching) Connected = up;
+                        }
+                        else Connected = up;
                         Application.Current?.Dispatcher.Invoke(() => Changed?.Invoke());
                         continue;
                     }

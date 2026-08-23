@@ -20,6 +20,17 @@ struct ContentView: View {
     /// another would be a nasty little trap.
     private var postChannel: String { channel ?? core.homeChannel }
 
+    /// What the status pill says. "disconnected" on its own was the whole
+    /// problem: it was true of some channel, and read as true of everything.
+    private var statusText: String {
+        if !core.connected { return "disconnected" }
+        let others = core.othersDown
+        if others.isEmpty { return core.serverAddr }
+        return others.count == 1
+            ? "\(core.serverAddr) · #\(others[0]) down"
+            : "\(core.serverAddr) · \(others.count) channels down"
+    }
+
     private var visible: [Msg] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return core.messages.filter { m in
@@ -37,7 +48,7 @@ struct ContentView: View {
             if let fatal = core.fatal {
                 Banner(text: fatal, tone: .red)
             } else if !core.connected {
-                Banner(text: "DISCONNECTED from \(core.serverAddr)"
+                Banner(text: "DISCONNECTED from \(core.serverAddr) on #\(postChannel)"
                        + (core.statusDetail.map { " — \($0)" } ?? "")
                        + " — retrying. Messages sent meanwhile will arrive when it comes back.",
                        tone: .red)
@@ -56,8 +67,11 @@ struct ContentView: View {
             if pane == .chat { composer }
         }
         .background(Sol.bg)
-        .onAppear { adoptHomeChannel() }
-        .onChange(of: core.settingsLoaded) { _, _ in adoptHomeChannel() }
+        .onAppear { adoptHomeChannel(); core.watching = postChannel }
+        .onChange(of: core.settingsLoaded) { _, _ in adoptHomeChannel(); core.watching = postChannel }
+        // The light follows the room. Switching channels switches which
+        // connection it is reporting on.
+        .onChange(of: postChannel) { _, now in core.watching = now }
         .onChange(of: state.requestedChannel) { _, wanted in
             guard let wanted, !wanted.isEmpty else { return }
             channel = wanted
@@ -126,13 +140,20 @@ struct ContentView: View {
             }
             .help("Check for updates")
 
+            // The light is about the channel being looked at. Another channel
+            // being down is worth saying, but it is not this room's state and
+            // it should not colour this room's light.
             HStack(spacing: 6) {
                 Circle()
-                    .fill(core.connected ? Sol.green : Sol.red)
+                    .fill(core.connected ? (core.othersDown.isEmpty ? Sol.green : Sol.yellow) : Sol.red)
                     .frame(width: 8, height: 8)
-                Text(core.connected ? core.serverAddr : "disconnected")
+                Text(statusText)
                     .font(.system(size: 11))
                     .foregroundStyle(core.connected ? Sol.fgDim : Sol.red)
+                    .help(core.othersDown.isEmpty
+                          ? "Connected to \(core.serverAddr) on #\(postChannel)"
+                          : "#\(postChannel) is connected. Not connected on "
+                            + core.othersDown.map { "#\($0)" }.joined(separator: ", "))
             }
         }
         .padding(.horizontal, 14)

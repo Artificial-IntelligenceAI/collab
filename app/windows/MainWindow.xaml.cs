@@ -85,10 +85,21 @@ namespace Collab
 
         void Sync()
         {
-            Dot.Fill = core.Connected ? Sol.Green : Sol.Red;
+            // The light is about the channel on screen. Another channel being
+            // down is worth saying and is not this room's state.
+            core.Watching = channel;
+            var others = core.OthersDown;
+            Dot.Fill = core.Connected ? (others.Count == 0 ? Sol.Green : Sol.Yellow) : Sol.Red;
             ServerLabel.Text = core.Fatal ?? (core.Connected
-                ? core.ServerAddr
-                : "DISCONNECTED from " + core.ServerAddr + " — retrying");
+                ? (others.Count == 0
+                    ? core.ServerAddr
+                    : others.Count == 1
+                        ? core.ServerAddr + "  \u00b7  #" + others[0] + " down"
+                        : core.ServerAddr + "  \u00b7  " + others.Count + " channels down")
+                : "DISCONNECTED from " + core.ServerAddr + " on #" + channel + " — retrying");
+            ServerLabel.ToolTip = others.Count == 0
+                ? null
+                : "#" + channel + " is connected. Not connected on " + string.Join(", ", others.Select(c => "#" + c));
             if (ChannelPicker.Items.Count != core.Channels.Count)
             {
                 var keep = channel;
