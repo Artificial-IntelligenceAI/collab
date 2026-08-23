@@ -20,8 +20,37 @@ fn seen_map() -> std::collections::BTreeMap<String, i64> {
         .unwrap_or_default()
 }
 
+/// Where one chat's place in one channel is recorded.
+///
+/// It used to be the channel name alone, in a file every session on the machine
+/// shares — so four watchers wrote one number per channel and whichever was
+/// furthest ahead set the resume point for all of them. Every reconnect reads
+/// this, so a watcher could resume from another session's position and skip
+/// what lay between: silently, permanently, and looking exactly like a message
+/// that was never sent. A four-minute delay and a message lost forever were the
+/// same mechanism, decided by which watcher happened to write last.
+///
+/// A terminal with no session keeps the bare channel name, which is also what
+/// makes the old entries readable below.
+fn seen_key(channel: &str) -> String {
+    let id = config::session_id();
+    if id.is_empty() {
+        channel.to_string()
+    } else {
+        format!("{id}\u{1}{channel}")
+    }
+}
+
 pub fn seen_for(channel: &str) -> i64 {
-    if let Some(n) = seen_map().get(channel) {
+    let map = seen_map();
+    if let Some(n) = map.get(&seen_key(channel)) {
+        return *n;
+    }
+    // First read after the split: inherit the machine's old shared place rather
+    // than replaying the channel from the beginning. Wrong by at most whatever
+    // another session had already read, and right about not dumping three days
+    // of history into somebody's window.
+    if let Some(n) = map.get(channel) {
         return *n;
     }
     // Before channels each had their own, there was one file for the one channel.
@@ -45,7 +74,7 @@ static SEEN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn save_seen_for(channel: &str, n: i64, warned: &mut bool) {
     let _guard = SEEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut map = seen_map();
-    map.insert(channel.to_string(), n);
+    map.insert(seen_key(channel), n);
     let path = config::home(".collab-seen.json");
     // Written through a rename. std::fs::write truncates first, and seen_map()
     // reads an unparseable file as an empty map — so a thread reading during
