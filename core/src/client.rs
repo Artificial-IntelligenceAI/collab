@@ -20,6 +20,36 @@ fn seen_map() -> std::collections::BTreeMap<String, i64> {
         .unwrap_or_default()
 }
 
+/// How far behind its own send time a message arrived, when that is far enough
+/// to be worth saying. Thirty seconds: below that the gap is clock skew, a slow
+/// disk or a person's imagination, and a note on every line would be noise
+/// nobody reads — which is the same as no note at all.
+///
+/// `None` when it is prompt, when the clocks disagree in the impossible
+/// direction, or when the timestamp will not parse. A missing note means
+/// nothing was measured, not that nothing was wrong.
+fn lateness(m: &Msg) -> Option<std::time::Duration> {
+    use time::format_description::well_known::Rfc3339;
+    use time::OffsetDateTime;
+    let sent = OffsetDateTime::parse(&m.at, &Rfc3339).ok()?;
+    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let secs = (now - sent).whole_seconds();
+    (secs >= 30).then(|| std::time::Duration::from_secs(secs as u64))
+}
+
+/// Plain words for a gap. "arrived 4m late" is a fact somebody can act on;
+/// "arrived 247s late" is arithmetic homework.
+fn human_gap(d: std::time::Duration) -> String {
+    let s = d.as_secs();
+    if s < 90 {
+        format!("{s}s")
+    } else if s < 5400 {
+        format!("{}m", (s + 30) / 60)
+    } else {
+        format!("{}h{}m", s / 3600, (s % 3600) / 60)
+    }
+}
+
 /// Where one chat's place in one channel is recorded.
 ///
 /// It used to be the channel name alone, in a file every session on the machine
@@ -359,21 +389,45 @@ fn watch_one(
         // receiving a message and printing it ate that message silently.
         // Filtered messages are genuinely handled, so they do advance the mark.
         if !(mine || addressed_elsewhere) {
+            // How long it took to arrive. A stream event carries when a
+            // message was *sent* and nothing about when it landed, so from
+            // inside a session "was that late?" has no answer — and this
+            // morning four of us spent an hour on a message that turned out to
+            // be four minutes late rather than lost. "Not yet" and "never" are
+            // the same observation until something says which.
+            //
+            // Silent when it is prompt, which is nearly always. A line that
+            // appears only when it has something to say is worth reading.
+            let late = lateness(m);
             if as_json {
-                if let Ok(s) = serde_json::to_string(
-                    &serde_json::json!({"type":"msg","msg":m,"replayed":replayed}),
-                ) {
+                if let Ok(s) = serde_json::to_string(&serde_json::json!({
+                    "type":"msg","msg":m,"replayed":replayed,
+                    "late_seconds": late.map(|d| d.as_secs()),
+                })) {
                     emit(&s);
                 }
-            } else if replayed {
-                emit(&format!(
-                    "[{}] (earlier) {}: {}",
-                    m.channel,
-                    m.label(),
-                    m.line()
-                ));
             } else {
-                emit(&format!("[{}] {}: {}", m.channel, m.label(), m.line()));
+                let note = match late {
+                    Some(d) => format!(" (arrived {} late)", human_gap(d)),
+                    None => String::new(),
+                };
+                if replayed {
+                    emit(&format!(
+                        "[{}] (earlier) {}: {}{}",
+                        m.channel,
+                        m.label(),
+                        m.line(),
+                        note
+                    ));
+                } else {
+                    emit(&format!(
+                        "[{}] {}: {}{}",
+                        m.channel,
+                        m.label(),
+                        m.line(),
+                        note
+                    ));
+                }
             }
             // Backlog is not news. Popping a notification for a message from
             // two hours ago says it has just been said, and an instruction read
