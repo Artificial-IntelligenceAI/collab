@@ -238,6 +238,29 @@ pub fn add(name: &str, key: &str, creator: &str) -> Result<String, String> {
             "this machine already holds that key as #{held}. A channel is its key — adding it again under another name makes two names for one room, and messages then turn up on whichever name was found first.\n\n  to rename it: collab channel forget {held}, then add it again as #{name}"
         ));
     }
+    // The mirror of the check above, and the one that was missing: the same
+    // *name* added twice with different keys. That silently replaced the key,
+    // leaving two machines each certain they were on #window and neither able
+    // to open the other's frames. It ran for two days without a symptom,
+    // because a channel nobody posts to looks exactly like a channel that
+    // works — the only thing that ever reported it was a status light, which
+    // blamed a different channel.
+    //
+    // Adding the key you already hold under the name you already hold is not
+    // an error; it is somebody pasting the same invite twice.
+    if let Some(held) = reg.get(&name) {
+        if held.key != key {
+            let origin = if held.mine { "made here" } else { "joined" };
+            return Err(format!(
+                "#{name} already exists on this machine ({origin}) with a different key, and \
+                 adding this one would replace it silently. Two machines would then each hold \
+                 a #{name} the other cannot open, which looks like nothing at all until \
+                 somebody wonders why a room is quiet.\n\n  \
+                 to replace it deliberately: collab channel forget {name}, then add it again\n  \
+                 to keep both: add this one under a different name"
+            ));
+        }
+    }
     reg.insert(
         name.clone(),
         Channel {
