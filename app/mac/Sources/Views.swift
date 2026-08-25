@@ -538,7 +538,7 @@ struct MessageBody: View {
                     // Horizontal scroll rather than wrapping: a wrapped diagram
                     // is not a smaller diagram, it is a wrong one.
                     ScrollView(.horizontal, showsIndicators: false) {
-                        Text(part.text)
+                        Text(Self.evenlySpaced(part.text, size: 12))
                             .font(Sol.mono(12))
                             .foregroundStyle(Sol.fgEm)
                             .textSelection(.enabled)
@@ -557,6 +557,48 @@ struct MessageBody: View {
     }
 
     struct Part { let text: String; let code: Bool }
+
+    /// A block where everything advances by a whole number of cells.
+    ///
+    /// A monospace table lines up because every character advances the same
+    /// distance. An emoji drawn at its own aspect ratio advances by whatever it
+    /// happens to be, so a row containing one is wider than its neighbours and
+    /// the columns shear — every character present, the table wrong.
+    ///
+    /// Which clusters need fixing is measured rather than guessed from Unicode
+    /// properties: anything that does not already advance like a cell is pinned
+    /// to two, which is what a monospace context means by an emoji's width.
+    /// Tracking adds to a run's advance, so the correction is the difference.
+    static func evenlySpaced(_ text: String, size: CGFloat) -> AttributedString {
+        let cell = size * 0.6              // JetBrains Mono advances 600/1000 em
+        var out = AttributedString()
+        for cluster in text {
+            var piece = AttributedString(String(cluster))
+            if cluster != "\n" {
+                let w = Self.advance(String(cluster), size: size)
+                if abs(w - cell) > 0.5 {   // not a plain monospace cell
+                    piece.tracking = cell * 2 - w
+                }
+            }
+            out.append(piece)
+        }
+        return out
+    }
+
+    private static var advanceCache: [String: CGFloat] = [:]
+
+    /// What one cluster actually advances, asked of the text system rather than
+    /// assumed. Cached: a block is measured character by character, and the
+    /// same handful of emoji recur.
+    static func advance(_ s: String, size: CGFloat) -> CGFloat {
+        let key = "\(s)|\(size)"
+        if let c = advanceCache[key] { return c }
+        let font = NSFont(name: "JetBrains Mono", size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let w = NSAttributedString(string: s, attributes: [.font: font]).size().width
+        advanceCache[key] = w
+        return w
+    }
 
     /// Splits on ``` fences. An unclosed fence is left as prose rather than
     /// swallowing the rest of the message — a half-typed block should look
