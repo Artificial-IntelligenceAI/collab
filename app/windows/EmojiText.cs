@@ -65,7 +65,38 @@ namespace Collab
         /// on purpose: a cluster that is not really an emoji renders as itself
         /// through DirectWrite anyway, so a false positive costs a little
         /// memory, while a false negative shows a box.
-        static bool LooksLikeEmoji(string cluster)
+        static bool LooksLikeEmoji(string cluster) => LooksLikeEmoji(cluster, false);
+
+        /// `inBlock` narrows it to things that are emoji by default.
+        ///
+        /// Being generous is right in prose — a cluster that is not really an
+        /// emoji renders as itself anyway. In a monospace block it is not: an
+        /// arrow drawn as a picture takes two cells where the font gives it one,
+        /// and the row shears. U+2190..21FF is the arrows block, U+2600..27BF
+        /// holds dingbats and U+2B00..2BFF holds geometric shapes; those are
+        /// text by default and JetBrains Mono draws every one of them at exactly
+        /// one cell.
+        ///
+        /// So inside a block only the emoji planes count, plus anything wearing
+        /// an explicit emoji-presentation selector — which is a person asking
+        /// for the picture.
+        static bool LooksLikeEmoji(string cluster, bool inBlock)
+        {
+            if (inBlock)
+            {
+                bool pictorial = false;
+                for (int i = 0; i < cluster.Length;)
+                {
+                    int cp = char.ConvertToUtf32(cluster, i);
+                    i += char.IsSurrogatePair(cluster, i) ? 2 : 1;
+                    if (cp >= 0x1F000 || cp == 0xFE0F) pictorial = true;
+                }
+                return pictorial;
+            }
+            return LooksLikeEmojiLoose(cluster);
+        }
+
+        static bool LooksLikeEmojiLoose(string cluster)
         {
             for (int i = 0; i < cluster.Length;)
             {
@@ -368,7 +399,7 @@ namespace Collab
             while (e.MoveNext())
             {
                 var cluster = (string)e.Current;
-                if (!LooksLikeEmoji(cluster)) { buffer.Append(cluster); continue; }
+                if (!LooksLikeEmoji(cluster, seg.Code)) { buffer.Append(cluster); continue; }
 
                 // Rendered large, shown small.
                 //
