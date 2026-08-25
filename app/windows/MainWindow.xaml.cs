@@ -68,6 +68,10 @@ namespace Collab
             }
             ChannelPicker.Background = Sol.BgAlt; ChannelPicker.Foreground = Sol.FgEm;
             Suggest.Background = Sol.Bg; Suggest.Foreground = Sol.FgEm; Suggest.BorderBrush = Sol.Rule;
+            // Never takes keyboard focus. It is a list you point at, not one you
+            // move into — and a click that moved focus off the composer left
+            // Return going to the list instead of the text box.
+            Suggest.Focusable = false;
             PaintTabs();
             Footer.Foreground = Sol.FgDim;
         }
@@ -227,10 +231,24 @@ namespace Collab
             Suggest.Visibility = Visibility.Collapsed;
         }
 
-        void OnSuggestKey(object s, KeyEventArgs e) { }
+        /// Keys reaching the list itself, which happens after somebody has
+        /// clicked a suggestion: the click moves keyboard focus onto the list,
+        /// and `Entry.Focus()` does not always take it back while the mouse
+        /// still holds it. This was an empty method, so from then on Return
+        /// arrived here and was quietly dropped — the composer looked focused
+        /// and the key did nothing.
+        ///
+        /// The list is also made non-focusable below, so this should not fire;
+        /// it forwards rather than being empty, because "should not fire" was
+        /// the assumption that broke.
+        void OnSuggestKey(object s, KeyEventArgs e) => OnKey(s, e);
+
         void OnSuggestPick(object s, MouseButtonEventArgs e)
         {
-            if (Suggest.SelectedItem is string n) { Accept(n); Entry.Focus(); }
+            if (Suggest.SelectedItem is string n) { Accept(n); }
+            Entry.Focus();
+            Keyboard.Focus(Entry);
+            e.Handled = true;
         }
 
         void OnKey(object s, KeyEventArgs e)

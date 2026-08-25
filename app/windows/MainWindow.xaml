@@ -142,9 +142,20 @@
     <Border x:Name="ComposerBar" Grid.Row="2" Padding="14,9">
       <StackPanel>
         <!-- @ suggestions, above the box the way WhatsApp does it -->
+        <!-- One click takes the name. It wanted a double click, so a single
+             one selected an item, moved keyboard focus onto the list, and
+             accepted nothing — after which Return went to the list rather than
+             the composer and was dropped. Items are non-focusable so a click
+             cannot move focus at all. -->
         <ListBox x:Name="Suggest" MaxHeight="120" Visibility="Collapsed" Margin="0,0,0,6"
                  BorderThickness="1" PreviewKeyDown="OnSuggestKey"
-                 MouseDoubleClick="OnSuggestPick"/>
+                 PreviewMouseLeftButtonUp="OnSuggestPick">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Setter Property="Focusable" Value="False"/>
+            </Style>
+          </ListBox.ItemContainerStyle>
+        </ListBox>
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
