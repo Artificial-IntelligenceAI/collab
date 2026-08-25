@@ -210,6 +210,16 @@ struct ContentView: View {
                         // name instead of sending, which is what makes it feel
                         // like a suggestion rather than an obstacle.
                         .onKeyPress { press in
+                            // Command-Return is what a person reaches for when
+                            // they want a second line and Return is taken. It
+                            // was falling through to submit, so the reflex sent
+                            // a half-written message instead of breaking it —
+                            // which is worth handling now that a newline
+                            // survives being sent at all.
+                            if press.key == .return, press.modifiers.contains(.command) {
+                                draft += "\n"
+                                return .handled
+                            }
                             guard !suggestions.isEmpty else { return .ignored }
                             switch press.key {
                             case .downArrow:
