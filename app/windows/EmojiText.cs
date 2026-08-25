@@ -186,15 +186,45 @@ namespace Collab
                 }
                 else
                 {
+                    // Prose, with any markdown tables lifted out of it. A table
+                    // is a row of cells followed by a |---|---| line; both are
+                    // required, because a lone line containing pipes is a
+                    // sentence about pipes.
                     var p = new Paragraph { Margin = new Thickness(0), TextAlignment = TextAlignment.Left };
+                    bool started = false;
                     for (int i = 0; i < lines.Length; i++)
                     {
-                        if (i > 0) p.Inlines.Add(new LineBreak());
+                        List<TextAlignment>? align = null;
+                        if (lines[i].Contains("|") && i + 1 < lines.Length)
+                        {
+                            align = SeparatorAlignments(lines[i + 1]);
+                            if (align != null && SplitRow(lines[i]).Count != align.Count) align = null;
+                        }
+                        if (align != null)
+                        {
+                            if (started) yield return p;
+                            p = new Paragraph { Margin = new Thickness(0), TextAlignment = TextAlignment.Left };
+                            started = false;
+
+                            var rows = new List<List<string>> { SplitRow(lines[i]) };
+                            int j = i + 2;
+                            while (j < lines.Length && lines[j].Contains("|")
+                                   && !lines[j].TrimStart().StartsWith("```"))
+                            {
+                                rows.Add(SplitRow(lines[j]));
+                                j++;
+                            }
+                            yield return BuildTable(rows, align, size);
+                            i = j - 1;
+                            continue;
+                        }
+                        if (started) p.Inlines.Add(new LineBreak());
+                        started = true;
                         var made = new List<Inline>();
                         foreach (var seg in Split(lines[i])) BuildSeg(seg, size, made);
                         foreach (var inl in made) p.Inlines.Add(inl);
                     }
-                    yield return p;
+                    if (started) yield return p;
                 }
             }
         }
@@ -408,6 +438,78 @@ namespace Collab
                 }
             }
             return made;
+        }
+
+        /// A markdown table as a real FlowDocument table, which sizes its own
+        /// columns and stays selectable — the same reason a block is a paragraph
+        /// here rather than a UI element in a box.
+        static Table BuildTable(List<List<string>> rows, List<TextAlignment> align, double size)
+        {
+            int cols = align.Count;
+            var t = new Table { CellSpacing = 0, Margin = new Thickness(0, 3, 0, 3) };
+            for (int c = 0; c < cols; c++)
+                t.Columns.Add(new TableColumn { Width = GridLength.Auto });
+            var group = new TableRowGroup();
+            t.RowGroups.Add(group);
+
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var row = new TableRow();
+                for (int c = 0; c < cols; c++)
+                {
+                    var text = c < rows[r].Count ? rows[r][c] : "";
+                    var p = new Paragraph
+                    {
+                        Margin = new Thickness(0),
+                        TextAlignment = align[c],
+                        FontWeight = r == 0 ? FontWeights.SemiBold : FontWeights.Normal,
+                    };
+                    var made = new List<Inline>();
+                    foreach (var seg in Split(text)) BuildSeg(seg, size, made);
+                    foreach (var inl in made) p.Inlines.Add(inl);
+                    row.Cells.Add(new TableCell(p)
+                    {
+                        Padding = new Thickness(7, 3, 7, 3),
+                        Foreground = r == 0 ? Sol.FgEm : Sol.Fg,
+                        // A rule under the header, which is what the separator
+                        // line in the source is declaring it to be.
+                        BorderBrush = Sol.Rule,
+                        BorderThickness = new Thickness(0, 0, 0, r == 0 ? 1 : 0),
+                    });
+                }
+                group.Rows.Add(row);
+            }
+            return t;
+        }
+
+        /// The cells of one `| a | b |` row. Leading and trailing pipes are
+        /// optional, which is how people write them.
+        static List<string> SplitRow(string line)
+        {
+            var t = line.Trim();
+            if (t.StartsWith("|")) t = t.Substring(1);
+            if (t.EndsWith("|")) t = t.Substring(0, t.Length - 1);
+            var outp = new List<string>();
+            foreach (var c in t.Split('|')) outp.Add(c.Trim());
+            return outp;
+        }
+
+        /// A `|---|---|` row and the alignment it declares per column, or null
+        /// if the line is not one. `:---` left, `---:` right, `:---:` centre.
+        static List<TextAlignment>? SeparatorAlignments(string line)
+        {
+            var cells = SplitRow(line);
+            if (cells.Count == 0) return null;
+            var outp = new List<TextAlignment>();
+            foreach (var raw in cells)
+            {
+                var c = raw.Trim();
+                if (c.Length < 3 || !c.Contains("-")) return null;
+                foreach (var ch in c) if (ch != '-' && ch != ':') return null;
+                bool l = c.StartsWith(":"), r = c.EndsWith(":");
+                outp.Add(l && r ? TextAlignment.Center : r ? TextAlignment.Right : TextAlignment.Left);
+            }
+            return outp;
         }
 
         /// Splits on ``` fences. An unclosed fence stays prose rather than

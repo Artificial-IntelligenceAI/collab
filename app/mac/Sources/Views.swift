@@ -534,7 +534,40 @@ struct MessageBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ForEach(Array(Self.split(text).enumerated()), id: \.offset) { _, part in
-                if part.code {
+                if part.kind == .table {
+                    // A Grid, so the columns size themselves to their widest
+                    // cell rather than to a guess. The first row is the header,
+                    // which is what the separator line under it declares it to
+                    // be — and a header drawn like a body row is a table that
+                    // has to be read twice.
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
+                        ForEach(Array(part.rows.enumerated()), id: \.offset) { r, row in
+                            GridRow {
+                                ForEach(Array(row.enumerated()), id: \.offset) { c, cell in
+                                    // Sized to content, not to an equal share of
+                                    // the window: a maxWidth of infinity spread
+                                    // three columns across the whole message
+                                    // list and pushed the last one off the edge.
+                                    // Grid measures columns itself; the header
+                                    // cell declares the column's alignment.
+                                    Text(mentionMarkup(cell, me: me))
+                                        .font(.system(size: 13, weight: r == 0 ? .semibold : .regular))
+                                        .foregroundStyle(r == 0 ? Sol.fgEm : Sol.fg)
+                                        .textSelection(.enabled)
+                                        .gridColumnAlignment(
+                                            c < part.align.count ? part.align[c] : .leading)
+                                }
+                            }
+                            if r == 0 {
+                                Divider().overlay(Sol.rule).gridCellUnsizedAxes(.horizontal)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 11).padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Sol.bgAlt))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Sol.rule, lineWidth: 1))
+                    .fixedSize(horizontal: true, vertical: false)
+                } else if part.code {
                     // Horizontal scroll rather than wrapping: a wrapped diagram
                     // is not a smaller diagram, it is a wrong one.
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -556,7 +589,57 @@ struct MessageBody: View {
         }
     }
 
-    struct Part { let text: String; let code: Bool }
+    enum Kind { case prose, code, table }
+
+    struct Part {
+        let text: String
+        let kind: Kind
+        /// Table only: cells by row, and each column's alignment.
+        var rows: [[String]] = []
+        var align: [HorizontalAlignment] = []
+        var code: Bool { kind == .code }
+    }
+
+    /// The frame alignment for a column, falling back to leading when the
+    /// separator row named fewer columns than a body row turned out to have.
+    static func frameAlignment(_ align: [HorizontalAlignment], _ i: Int) -> Alignment {
+        let h = i < align.count ? align[i] : .leading
+        switch h {
+        case .center: return .center
+        case .trailing: return .trailing
+        default: return .leading
+        }
+    }
+
+    /// A `|---|---|` row, and what it says about each column's alignment.
+    /// `:---` left, `---:` right, `:---:` centre — the usual markdown spelling.
+    static func separatorAlignments(_ line: String) -> [HorizontalAlignment]? {
+        let cells = splitRow(line)
+        guard !cells.isEmpty else { return nil }
+        var out: [HorizontalAlignment] = []
+        for c in cells {
+            let t = c.trimmingCharacters(in: .whitespaces)
+            guard t.count >= 3, t.allSatisfy({ $0 == "-" || $0 == ":" }),
+                  t.contains("-") else { return nil }
+            switch (t.hasPrefix(":"), t.hasSuffix(":")) {
+            case (true, true): out.append(.center)
+            case (false, true): out.append(.trailing)
+            default: out.append(.leading)
+            }
+        }
+        return out
+    }
+
+    /// The cells of one `| a | b |` row. Leading and trailing pipes are
+    /// optional, which is how people actually write them.
+    static func splitRow(_ line: String) -> [String] {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+    }
 
     /// A block where everything advances by a whole number of cells.
     ///
@@ -605,29 +688,49 @@ struct MessageBody: View {
     /// wrong, not make everything after it disappear into a box.
     static func split(_ text: String) -> [Part] {
         let lines = text.components(separatedBy: "\n")
-        guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") })
-        else { return [Part(text: text, code: false)] }
-
         var parts: [Part] = []
         var buf: [String] = []
         var inCode = false
-        func flush(_ code: Bool) {
+
+        func flushProse(_ code: Bool) {
             let joined = buf.joined(separator: "\n")
             if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                parts.append(Part(text: joined, code: code))
+                parts.append(Part(text: joined, kind: code ? .code : .prose))
             }
             buf = []
         }
-        for line in lines {
+
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                flush(inCode)
+                flushProse(inCode)
                 inCode.toggle()
+                i += 1
+                continue
+            }
+            // A table is a row of cells followed by a |---|---| line. Both are
+            // required: a lone line with pipes in it is a sentence about pipes.
+            if !inCode, line.contains("|"), i + 1 < lines.count,
+               let align = separatorAlignments(lines[i + 1]),
+               splitRow(line).count == align.count {
+                flushProse(false)
+                var rows: [[String]] = [splitRow(line)]
+                var j = i + 2
+                while j < lines.count, lines[j].contains("|"),
+                      !lines[j].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    rows.append(splitRow(lines[j]))
+                    j += 1
+                }
+                parts.append(Part(text: "", kind: .table, rows: rows, align: align))
+                i = j
                 continue
             }
             buf.append(line)
+            i += 1
         }
         // An unclosed fence: whatever is left is prose, not a block.
-        flush(inCode && !buf.isEmpty ? false : inCode)
+        flushProse(inCode && !buf.isEmpty ? false : inCode)
         return parts
     }
 }
