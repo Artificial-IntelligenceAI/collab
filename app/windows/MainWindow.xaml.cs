@@ -250,8 +250,22 @@ namespace Collab
                         e.Handled = true; return;
                     case Key.Enter:
                     case Key.Tab:
-                        if (Suggest.SelectedItem is string n) Accept(n);
-                        e.Handled = true; return;
+                        // Take the highlighted name, or the first one if the
+                        // list has not settled its selection. Assigning
+                        // ItemsSource resets selection, and an index set before
+                        // the containers exist can be cleared — so the list is
+                        // visible with nothing selected, and the old code
+                        // swallowed Return in that state: it neither inserted a
+                        // name nor sent the message. Nothing happened, which is
+                        // the worst of the three.
+                        //
+                        // If there is genuinely nothing to take, fall through
+                        // and let Return do what Return does.
+                        var pick = Suggest.SelectedItem as string
+                                   ?? (Suggest.Items.Count > 0 ? Suggest.Items[0] as string : null);
+                        if (pick != null) { Accept(pick); e.Handled = true; return; }
+                        Suggest.Visibility = Visibility.Collapsed;
+                        break;
                     case Key.Escape:
                         Suggest.Visibility = Visibility.Collapsed; e.Handled = true; return;
                 }
