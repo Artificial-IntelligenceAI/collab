@@ -50,6 +50,7 @@ namespace Collab
                 // WinUI's IsTextSelectionEnabled — and a plain TextBox cannot
                 // hold the inline images the emoji are made of.
                 case RichTextBox rtb:
+                    docFamily = rtb.FontFamily;
                     var doc = new FlowDocument
                     {
                         PagePadding = new Thickness(0),
@@ -288,6 +289,10 @@ namespace Collab
         /// Consolas while the Mac used SF Mono — the same diagram, two shapes,
         /// and nothing to say so. Carrying the file is the only way the two
         /// windows agree about what a monospace column is.
+        /// The font the document is actually drawn in, so a cell is measured
+        /// against the face that will render it rather than against a guess.
+        static FontFamily? docFamily;
+
         static readonly FontFamily Mono = new FontFamily(
             new Uri("pack://application:,,,/"), "./Fonts/#JetBrains Mono");
 
@@ -440,6 +445,21 @@ namespace Collab
             return made;
         }
 
+        /// How wide one cell's text lays out, with the inline markers that will
+        /// not be drawn taken out first — a backtick or an asterisk is an
+        /// instruction, not a character anybody sees.
+        static double MeasureCell(string text, double size, bool header)
+        {
+            var plain = text.Replace("**", "").Replace("`", "");
+            var face = new Typeface(docFamily ?? new FontFamily("Segoe UI"),
+                                    FontStyles.Normal,
+                                    header ? FontWeights.SemiBold : FontWeights.Normal,
+                                    FontStretches.Normal);
+            var ft = new FormattedText(plain, System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, face, size, System.Windows.Media.Brushes.Black, 1.0);
+            return ft.WidthIncludingTrailingWhitespace;
+        }
+
         /// A markdown table as a real FlowDocument table, which sizes its own
         /// columns and stays selectable — the same reason a block is a paragraph
         /// here rather than a UI element in a box.
@@ -447,8 +467,26 @@ namespace Collab
         {
             int cols = align.Count;
             var t = new Table { CellSpacing = 0, Margin = new Thickness(0, 3, 0, 3) };
+
+            // Measured, not Auto.
+            //
+            // A FlowDocument table fills the page width and shares it out;
+            // GridLength.Auto does not mean here what it means in a Grid, so the
+            // columns stretched across the whole message list while the Mac's
+            // sat at their content. Measuring each cell and setting an absolute
+            // width is the only way to get the same shape — the leftover width
+            // stays empty, which is what content-sized looks like.
+            const double CellPad = 7;
             for (int c = 0; c < cols; c++)
-                t.Columns.Add(new TableColumn { Width = GridLength.Auto });
+            {
+                double widest = 0;
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    if (c >= rows[r].Count) continue;
+                    widest = Math.Max(widest, MeasureCell(rows[r][c], size, r == 0));
+                }
+                t.Columns.Add(new TableColumn { Width = new GridLength(widest + CellPad * 2 + 2) });
+            }
             var group = new TableRowGroup();
             t.RowGroups.Add(group);
 
