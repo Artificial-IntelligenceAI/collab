@@ -428,6 +428,31 @@ pub fn install(dir: &Path) -> Result<Vec<String>, String> {
         // a person reading "\\?\C:\Users\..." out of a dialog has been handed
         // an implementation detail and told it is where their file is.
         done.push(tidy_path(&target));
+
+        // The Mac has two command lines, not one: this bundled copy inside
+        // Collab.app, and ~/.local/bin/collab. Replacing only the running one
+        // meant the app updated itself all day while the terminal copy stayed
+        // where it was — and that copy is what launchd runs as the *server*,
+        // so every server-side fix was installed and never ran. Whichever one
+        // is doing the updating, both end up on the new version.
+        #[cfg(not(target_os = "windows"))]
+        for other in [config::home(".local/bin/collab")] {
+            let same = std::fs::canonicalize(&other)
+                .map(|c| c == target)
+                .unwrap_or(false);
+            if !other.exists() || same {
+                continue;
+            }
+            let _ = std::fs::remove_file(&other);
+            if std::fs::copy(&bin, &other).is_ok() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o755));
+                }
+                done.push(other.display().to_string());
+            }
+        }
     }
 
     let app_tar = dir.join("Collab.app.tar.gz");
