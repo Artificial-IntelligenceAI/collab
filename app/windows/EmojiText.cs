@@ -363,10 +363,22 @@ namespace Collab
                 var cluster = (string)e.Current;
                 if (!LooksLikeEmoji(cluster)) { buffer.Append(cluster); continue; }
 
-                var key = (cluster, (int)Math.Round(size));
+                // Rendered large, shown small.
+                //
+                // Noto is a bitmap font — its glyphs are 136px images — and
+                // asking DirectWrite for them at text size draws them straight
+                // down to about thirteen pixels, which loses most of them.
+                // Segoe scaled cleanly because it is vector-ish; swapping the
+                // font made the size the renderer was asked for start to matter.
+                //
+                // So it is drawn near the font's own size and scaled down by
+                // WPF, which resamples rather than dropping pixels. One cache
+                // entry per cluster now instead of one per cluster and size.
+                const double DrawAt = 72;
+                var key = (cluster, (int)DrawAt);
                 if (!cache.TryGetValue(key, out var img))
                 {
-                    img = EmojiDW.Render(cluster, size);
+                    img = EmojiDW.Render(cluster, DrawAt);
                     cache[key] = img;
                 }
                 if (img == null) { buffer.Append(cluster); continue; }
@@ -380,14 +392,17 @@ namespace Collab
                 // A cap-height-ish box, dropped by a fifth so it sits on the
                 // baseline rather than hanging from the ascender.
                 double box = size * 1.2;
-                made.Add(new InlineUIContainer(new Image
+                var pic = new Image
                 {
                     Source = img,
                     Height = box,
                     Stretch = Stretch.Uniform,
                     StretchDirection = StretchDirection.Both,
                     Margin = new Thickness(0, 0, 0, -size * 0.18),
-                })
+                };
+                // Resample on the way down rather than dropping pixels.
+                RenderOptions.SetBitmapScalingMode(pic, BitmapScalingMode.HighQuality);
+                made.Add(new InlineUIContainer(pic)
                 { BaselineAlignment = BaselineAlignment.Baseline });
             }
             FlushText();
