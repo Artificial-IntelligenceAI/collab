@@ -169,10 +169,87 @@ fn emit(line: &str) {
     }
 }
 
+/// Connects, remembering what the name resolved to last time.
+///
+/// A `.local` name is the right thing to put in a config — addresses change
+/// every time a router hands out a new lease, and this one changed twice in a
+/// week. But resolving it costs about two seconds per connection on Windows,
+/// every connection, because each `collab` run is a new process with nothing
+/// cached. Measured from the VM: 2.3s by name against 0.22s by address, and a
+/// message carrying an `@` opens two connections, so it paid twice.
+///
+/// So the name stays in the config and the address it resolved to is kept
+/// beside it. The cache is a hint, never the truth: if connecting to it fails
+/// the name is resolved again, which is exactly the case a fresh lease creates.
 fn dial(channel: &str) -> std::io::Result<Conn> {
-    let stream = TcpStream::connect(config::addr())?;
+    let addr = config::addr();
+    if let Some(cached) = resolved_addr(&addr) {
+        if let Ok(stream) = TcpStream::connect(&cached) {
+            let _ = stream.set_nodelay(true);
+            return Conn::connect(stream, channel);
+        }
+        forget_resolved(&addr); // the lease moved, or the machine did
+    }
+    let stream = TcpStream::connect(&addr)?;
+    let _ = stream.set_nodelay(true);
+    if let Ok(peer) = stream.peer_addr() {
+        remember_resolved(&addr, &peer.to_string());
+    }
     let _ = stream.set_nodelay(true);
     Conn::connect(stream, channel)
+}
+
+/// The address a name last resolved to, if it was recent enough to trust.
+/// An hour: long enough that a burst of messages pays nothing, short enough
+/// that a machine which moved is found again without anyone intervening.
+fn resolved_addr(name: &str) -> Option<String> {
+    if name.parse::<std::net::SocketAddr>().is_ok() {
+        return None; // already an address; nothing to resolve or remember
+    }
+    let raw = std::fs::read_to_string(config::home(".collab-resolved.json")).ok()?;
+    let map: std::collections::BTreeMap<String, (String, u64)> =
+        serde_json::from_str(&raw).ok()?;
+    let (addr, when) = map.get(name)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    (now.saturating_sub(*when) < 3600).then(|| addr.clone())
+}
+
+fn remember_resolved(name: &str, addr: &str) {
+    if name.parse::<std::net::SocketAddr>().is_ok() || name == addr {
+        return;
+    }
+    let path = config::home(".collab-resolved.json");
+    let mut map: std::collections::BTreeMap<String, (String, u64)> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|r| serde_json::from_str(&r).ok())
+            .unwrap_or_default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    map.insert(name.to_string(), (addr.to_string(), now));
+    if let Ok(text) = serde_json::to_string(&map) {
+        let _ = std::fs::write(&path, text);
+    }
+}
+
+fn forget_resolved(name: &str) {
+    let path = config::home(".collab-resolved.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut map) = serde_json::from_str::<std::collections::BTreeMap<String, (String, u64)>>(&raw)
+    else {
+        return;
+    };
+    map.remove(name);
+    if let Ok(text) = serde_json::to_string(&map) {
+        let _ = std::fs::write(&path, text);
+    }
 }
 
 /// Dials one channel, delivers, and on failure reconnects — announcing both,
@@ -575,7 +652,7 @@ pub struct User {
 /// is also exactly who can be mentioned.
 pub fn users_on(channel: &str) -> Vec<User> {
     let mut out: Vec<User> = Vec::new();
-    for m in fetch(channel, 0) {
+    for m in speakers(channel) {
         if m.from.is_empty() {
             continue;
         }
@@ -835,6 +912,40 @@ pub fn change(action: &str, target: &str, summary: &str, via_ai: bool, channel: 
 
 /// The server owns the only complete history, so ask over the wire; fall back
 /// to whatever is local rather than claiming the channel is empty.
+/// One message per distinct speaker, from the server, instead of the whole
+/// channel. Falls back to a full fetch when the server does not know the mode —
+/// an older one closes without answering, and an empty answer is
+/// indistinguishable from a channel nobody has spoken on.
+fn speakers(channel: &str) -> Vec<Msg> {
+    let Ok(mut conn) = dial(channel) else {
+        return history::filter(history::read(), channel, 0);
+    };
+    let hello = Hello {
+        name: config::name(),
+        host: config::name(),
+        channel: channel.to_string(),
+        since: 0,
+        mode: "who".into(),
+    };
+    if conn
+        .send(&hello)
+        .and_then(|_| conn.expect_welcome().map(|_| ()))
+        .is_err()
+    {
+        return fetch(channel, 0);
+    }
+    let mut out = Vec::new();
+    while let Ok(Some(m)) = conn.recv::<Msg>() {
+        out.push(m);
+    }
+    if out.is_empty() {
+        // Either nobody has spoken, or the server is old enough not to know
+        // "who". The full fetch answers both without guessing which.
+        return fetch(channel, 0);
+    }
+    out
+}
+
 pub fn fetch(channel: &str, since: i64) -> Vec<Msg> {
     // No channel named means every channel this machine holds a key for —
     // which is now several connections, because a connection is a channel.

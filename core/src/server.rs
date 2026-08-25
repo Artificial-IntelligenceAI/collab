@@ -279,6 +279,36 @@ fn handle(hub: Arc<Hub>, stream: TcpStream) {
             }
         }
 
+        // Who has spoken here, and nothing else.
+        //
+        // The mention check needs names, and asked for them by pulling every
+        // message ever sent to the channel — seven hundred of them across a LAN
+        // to find out that four people had spoken. Measured from the Windows VM
+        // that was 4.5 seconds before a message with an @ left the machine.
+        //
+        // The server holds the history; it can answer the question instead of
+        // shipping the evidence.
+        "who" => {
+            let mut seen: Vec<crate::msg::Msg> = Vec::new();
+            for m in history::filter(history::read(), &hello.channel, 0) {
+                if m.from.is_empty() || seen.iter().any(|k| k.from == m.from) {
+                    continue;
+                }
+                seen.push(crate::msg::Msg {
+                    from: m.from,
+                    host: m.host,
+                    via: m.via,
+                    at: m.at,
+                    ..Default::default()
+                });
+            }
+            for m in seen {
+                if conn.send(&m).is_err() {
+                    return;
+                }
+            }
+        }
+
         // Everything missed, then live. No gap, by construction.
         "watch" => {
             for m in history::filter(history::read(), &hello.channel, hello.since) {
