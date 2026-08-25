@@ -160,9 +160,71 @@ namespace Collab
             double size = fontSize > 0 ? fontSize : 13;
             if (!EmojiDW.Available) { made.Add(new Run(text)); return made; }
 
-            foreach (var seg in Split(text))
-                BuildSeg(seg, size, made);
+            // Fenced blocks first, then inline markup inside the prose between
+            // them. Until today no message could hold a newline at all — they
+            // were replaced with spaces before storage — so every diagram and
+            // table posted here arrived as one flowed line. Now that the text
+            // survives, a block has to keep its shape: alignment is the whole
+            // content of a diagram, and losing it leaves every character
+            // present and the meaning gone.
+            bool first = true;
+            foreach (var block in Fences(text))
+            {
+                if (!first) made.Add(new LineBreak());
+                first = false;
+                if (block.code)
+                {
+                    var lines = block.text.Split('\n');
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (i > 0) made.Add(new LineBreak());
+                        made.Add(new Run(lines[i])
+                        {
+                            FontFamily = Mono,
+                            Foreground = Sol.FgEm,
+                            FontSize = size - 1,
+                        });
+                    }
+                }
+                else
+                {
+                    var lines = block.text.Split('\n');
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (i > 0) made.Add(new LineBreak());
+                        foreach (var seg in Split(lines[i])) BuildSeg(seg, size, made);
+                    }
+                }
+            }
             return made;
+        }
+
+        /// Splits on ``` fences. An unclosed fence stays prose rather than
+        /// swallowing the rest of the message — a half-typed block should look
+        /// wrong, not make everything after it vanish into a box.
+        static List<(string text, bool code)> Fences(string text)
+        {
+            var outp = new List<(string, bool)>();
+            var lines = text.Split('\n');
+            bool any = false;
+            foreach (var l in lines) if (l.TrimStart().StartsWith("```")) { any = true; break; }
+            if (!any) { outp.Add((text, false)); return outp; }
+
+            var buf = new List<string>();
+            bool inCode = false;
+            void Flush(bool code)
+            {
+                var joined = string.Join("\n", buf);
+                if (joined.Trim().Length > 0) outp.Add((joined, code));
+                buf.Clear();
+            }
+            foreach (var l in lines)
+            {
+                if (l.TrimStart().StartsWith("```")) { Flush(inCode); inCode = !inCode; continue; }
+                buf.Add(l);
+            }
+            Flush(false);
+            return outp;
         }
 
         static void BuildSeg(Seg seg, double size, List<Inline> made)

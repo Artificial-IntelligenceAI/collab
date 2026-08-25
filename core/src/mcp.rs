@@ -525,7 +525,7 @@ you subscribe again."
             }
         }
         "collab_post" => {
-            let m = arg(req, "message").trim().replace('\n', " ");
+            let m = arg(req, "message").trim().to_string();
             if m.is_empty() {
                 return text("nothing to send — message was empty".into());
             }
@@ -553,7 +553,7 @@ you subscribe again."
         "collab_change" => {
             let action = arg(req, "action").trim().to_lowercase();
             let target = arg(req, "target").trim().to_string();
-            let summary = arg(req, "summary").trim().replace('\n', " ");
+            let summary = arg(req, "summary").trim().to_string();
             if !ACTIONS.contains(&action.as_str()) {
                 return text(format!("action must be one of: {}", ACTIONS.join(", ")));
             }

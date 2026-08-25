@@ -20,6 +20,20 @@ fn seen_map() -> std::collections::BTreeMap<String, i64> {
         .unwrap_or_default()
 }
 
+/// One line, for the text stream, which is line-oriented by construction:
+/// every consumer of `collab watch` treats a line as a message, including the
+/// Monitors these sessions run and the greps piped after them. Emitting a real
+/// newline would split one message into several, and a filter matching `^[`
+/// would keep the first and drop the rest — silently, which is the failure this
+/// change exists to end rather than to relocate.
+///
+/// So in text mode the break is *shown* instead of sent. The message arrives
+/// whole, nothing downstream needs changing, and `-json` carries the real
+/// newlines for anything that can hold them.
+fn one_line(s: &str) -> String {
+    s.replace('\n', " \u{23ce} ")
+}
+
 /// How far behind its own send time a message arrived, when that is far enough
 /// to be worth saying. Thirty seconds: below that the gap is clock skew, a slow
 /// disk or a person's imagination, and a note on every line would be noise
@@ -416,7 +430,7 @@ fn watch_one(
                         "[{}] (earlier) {}: {}{}",
                         m.channel,
                         m.label(),
-                        m.line(),
+                        one_line(&m.line()),
                         note
                     ));
                 } else {
@@ -424,7 +438,7 @@ fn watch_one(
                         "[{}] {}: {}{}",
                         m.channel,
                         m.label(),
-                        m.line(),
+                        one_line(&m.line()),
                         note
                     ));
                 }
@@ -722,7 +736,7 @@ here cannot be mentioned yet.",
 
 pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
     let channel = target_channel(channel);
-    let text = text.trim().replace('\n', " ");
+    let text = text.trim().to_string();
     if text.is_empty() {
         eprintln!("usage: collab post [-c channel] \"message\"");
         std::process::exit(2);
@@ -767,7 +781,7 @@ pub fn change(action: &str, target: &str, summary: &str, via_ai: bool, channel: 
         );
         std::process::exit(2);
     }
-    let summary = summary.trim().replace('\n', " ");
+    let summary = summary.trim().to_string();
     if target.trim().is_empty() || summary.is_empty() {
         eprintln!("{CHANGE_USAGE}");
         std::process::exit(2);

@@ -506,9 +506,7 @@ struct ChatList: View {
                 Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
                 Text("— " + m.text).foregroundStyle(Sol.fgEm)
             } else {
-                Text(mentionMarkup(m.text, me: core.me))
-                    .foregroundStyle(Sol.fg)
-                    .textSelection(.enabled)
+                MessageBody(text: m.text, me: core.me)
             }
             Spacer(minLength: 0)
         }
@@ -518,6 +516,77 @@ struct ChatList: View {
 
     private func sameDay(_ a: Date, _ b: Date) -> Bool {
         Calendar.current.isDate(a, inSameDayAs: b)
+    }
+}
+
+/// A message body, split into prose and fenced blocks.
+///
+/// Until today no message could contain a newline: four places replaced them
+/// with spaces before anything was stored, so every diagram and table anyone
+/// posted arrived as one flowed line. Now that the text survives, a block has
+/// to be drawn as a block — alignment is the entire content of a diagram, and
+/// prose wrapping destroys it while leaving every character present, which is
+/// why nobody noticed for three days.
+struct MessageBody: View {
+    let text: String
+    let me: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(Self.split(text).enumerated()), id: \.offset) { _, part in
+                if part.code {
+                    // Horizontal scroll rather than wrapping: a wrapped diagram
+                    // is not a smaller diagram, it is a wrong one.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(part.text)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Sol.fgEm)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 9).padding(.vertical, 6)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Sol.bgAlt))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Sol.rule, lineWidth: 1))
+                } else {
+                    Text(mentionMarkup(part.text, me: me))
+                        .foregroundStyle(Sol.fg)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    struct Part { let text: String; let code: Bool }
+
+    /// Splits on ``` fences. An unclosed fence is left as prose rather than
+    /// swallowing the rest of the message — a half-typed block should look
+    /// wrong, not make everything after it disappear into a box.
+    static func split(_ text: String) -> [Part] {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") })
+        else { return [Part(text: text, code: false)] }
+
+        var parts: [Part] = []
+        var buf: [String] = []
+        var inCode = false
+        func flush(_ code: Bool) {
+            let joined = buf.joined(separator: "\n")
+            if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                parts.append(Part(text: joined, code: code))
+            }
+            buf = []
+        }
+        for line in lines {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                flush(inCode)
+                inCode.toggle()
+                continue
+            }
+            buf.append(line)
+        }
+        // An unclosed fence: whatever is left is prose, not a block.
+        flush(inCode && !buf.isEmpty ? false : inCode)
+        return parts
     }
 }
 
