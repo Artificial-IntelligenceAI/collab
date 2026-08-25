@@ -104,6 +104,13 @@ namespace Collab
                         Margin = new Thickness(0, 3, 0, 3),
                         Padding = new Thickness(9, 6, 9, 6),
                         Background = Sol.BgAlt,
+                        // The edge the Mac draws. A shaded rectangle with no
+                        // rule reads as tinted prose; the border is what says
+                        // "this is a block" before anything is read. WPF's Block
+                        // has no corner radius, so the Mac's is rounded and this
+                        // is not — as close as the two toolkits allow.
+                        BorderBrush = Sol.Rule,
+                        BorderThickness = new Thickness(1),
                         FontFamily = Mono,
                         FontSize = size - 1,
                         Foreground = Sol.FgEm,
