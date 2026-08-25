@@ -175,17 +175,33 @@ pub fn mentions_in(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let mut in_code = false;
+    let mut in_fence = false;
     let mut i = 0;
     while i < chars.len() {
         // Inside backticks you are quoting a name, not calling one. Without
         // this, the one message a channel cannot accept is the message
         // explaining why a name does not work on that channel.
+        //
+        // A run of three or more is a fence, not three quotes. Toggling once
+        // per backtick left the state inverted for the whole block, so a
+        // backticked name *inside* a fenced sample read as a live mention —
+        // and since the server fills `to` from this, a message quoting the
+        // bug was delivered to the person it named and to nobody else.
         if chars[i] == '`' {
-            in_code = !in_code;
-            i += 1;
+            let mut run = 0;
+            while i + run < chars.len() && chars[i + run] == '`' {
+                run += 1;
+            }
+            if run >= 3 {
+                in_fence = !in_fence;
+                in_code = false;
+            } else if !in_fence {
+                in_code = !in_code;
+            }
+            i += run;
             continue;
         }
-        if chars[i] == '@' && !in_code {
+        if chars[i] == '@' && !in_code && !in_fence {
             // A name must follow a space or start the line, so an email address
             // is an address; and @@name is how you write a literal one.
             let prev_ok = i == 0 || (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '@');
@@ -218,4 +234,37 @@ pub fn now() -> String {
         .unwrap_or_else(|_| OffsetDateTime::now_utc())
         .format(&Rfc3339)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod mention_parsing {
+    /// Quoting a name must not address it — including inside a fenced block,
+    /// which is how anybody reports a bug about mentions in the first place.
+    #[test]
+    fn quoted_names_are_not_mentions() {
+        for t in [
+            "**`@collab-build`'s zero broke the metric.**",
+            "`@collab-build` zero broke the metric.",
+            "`@collab-build`, and also `@sus`.",
+            "before\n```\n**`@collab-build`'s zero**\n```\nafter",
+            "before\n```\n@collab-build bare inside a fence\n```\nafter",
+            "```\n@a\n```\n`@b`\n```\n@c\n```",
+        ] {
+            assert!(
+                super::mentions_in(t).is_empty(),
+                "{t:?} -> {:?}",
+                super::mentions_in(t)
+            );
+        }
+    }
+
+    #[test]
+    fn plain_names_still_are() {
+        assert_eq!(super::mentions_in("@collab-build's zero"), vec!["collab-build"]);
+        assert_eq!(super::mentions_in("`code` then @sus"), vec!["sus"]);
+        assert_eq!(
+            super::mentions_in("```\nfenced\n```\nand @sus after"),
+            vec!["sus"]
+        );
+    }
 }

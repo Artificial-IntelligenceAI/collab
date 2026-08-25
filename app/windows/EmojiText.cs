@@ -380,8 +380,13 @@ namespace Collab
         static string MentionName(string word)
         {
             var n = word.TrimStart('@');
-            int end = n.Length;
-            while (end > 0 && !(char.IsLetterOrDigit(n[end - 1]) || "-_./".IndexOf(n[end - 1]) >= 0)) end--;
+            // The leading run of name characters, not the whole word with its
+            // tail trimmed. Those differ on "@name's": trimming from the end
+            // stops at the "s" and keeps the apostrophe, so the name came out
+            // as "collab-build's" and never matched the reader's own name.
+            int end = 0;
+            while (end < n.Length && (char.IsLetterOrDigit(n[end]) || "-_./".IndexOf(n[end]) >= 0)) end++;
+            while (end > 0 && (n[end - 1] == '.' || n[end - 1] == '/')) end--;
             return n.Substring(0, end).ToLowerInvariant();
         }
 
@@ -621,9 +626,11 @@ namespace Collab
                     if (text[i] != '@' || !atWordStart) { buffer.Append(text[i]); i++; continue; }
                     int end = i + 1;
                     while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
-                    var word = text.Substring(i, end - i);
-                    var name = MentionName(word);
+                    var name = MentionName(text.Substring(i, end - i));
                     if (name.Length == 0) { buffer.Append(text[i]); i++; continue; }
+                    // Colour the name, not the punctuation clinging to it.
+                    var word = text.Substring(i, name.Length + 1);
+                    end = i + word.Length;
                     FlushText();
                     var run = Style(new Run(word));
                     run.FontWeight = FontWeights.SemiBold;

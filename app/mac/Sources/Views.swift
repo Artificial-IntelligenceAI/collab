@@ -764,11 +764,20 @@ func mentionMarkup(_ text: String, me: String) -> AttributedString {
     }
 
     let plain = String(out.characters)
+    let nameChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./"))
     for word in plain.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
         guard word.hasPrefix("@"), word.count > 1 else { continue }
-        let name = word.dropFirst().lowercased()
-            .trimmingCharacters(in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./")).inverted)
-        guard let r = out.range(of: String(word)) else { continue }
+        // Only the part that could be a name. A possessive or a comma riding
+        // on the end used to be searched for as part of the word, and a range
+        // spanning a code run and the punctuation after it has no uniform
+        // intent — the code check read nil, decided that meant "not code",
+        // and lit up a name that was written in backticks precisely so it
+        // would not be. `@name`'s is the case that found it.
+        let body = word.dropFirst().prefix { $0.unicodeScalars.allSatisfy(nameChars.contains) }
+        guard !body.isEmpty else { continue }
+        let token = "@" + body
+        let name = body.lowercased()
+        guard let r = out.range(of: token) else { continue }
         if out[r].inlinePresentationIntent?.contains(.code) == true { continue }
         let mine = !me.isEmpty && name == me.lowercased()
         out[r].foregroundColor = mine ? Sol.onAccent : Sol.blue
