@@ -174,17 +174,43 @@ namespace Collab
                 first = false;
                 if (block.code)
                 {
+                    // The same bordered box the Mac draws, for the same reason:
+                    // a block has an edge, and without one a diagram sits in the
+                    // prose looking like prose that happens to be monospaced.
+                    //
+                    // NoWrap inside a horizontal scroller rather than wrapping —
+                    // a wrapped diagram is not a smaller diagram, it is a wrong
+                    // one, and every character being present is exactly what
+                    // makes that hard to notice.
+                    var inner = new TextBlock
+                    {
+                        FontFamily = Mono,
+                        Foreground = Sol.FgEm,
+                        FontSize = size - 1,
+                        TextWrapping = TextWrapping.NoWrap,
+                    };
                     var lines = block.text.Split('\n');
                     for (int i = 0; i < lines.Length; i++)
                     {
-                        if (i > 0) made.Add(new LineBreak());
-                        made.Add(new Run(lines[i])
-                        {
-                            FontFamily = Mono,
-                            Foreground = Sol.FgEm,
-                            FontSize = size - 1,
-                        });
+                        if (i > 0) inner.Inlines.Add(new LineBreak());
+                        inner.Inlines.Add(new Run(lines[i]));
                     }
+                    var box = new Border
+                    {
+                        Background = Sol.BgAlt,
+                        BorderBrush = Sol.Rule,
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(9, 6, 9, 6),
+                        Margin = new Thickness(0, 2, 0, 2),
+                        Child = new ScrollViewer
+                        {
+                            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                            Content = inner,
+                        },
+                    };
+                    made.Add(new InlineUIContainer(box) { BaselineAlignment = BaselineAlignment.Top });
                 }
                 else
                 {
