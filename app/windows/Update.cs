@@ -7,16 +7,41 @@
 // The work is all in `collab update`; this asks, shows what it said, and asks
 // before installing. -json so the answer is parsed rather than scraped.
 using System;
+using System.Threading.Tasks;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Input;
 
 namespace Collab
 {
     internal static class Updater
     {
-        public static void CheckForUpdates(Window owner)
+        /// Both halves of this run off the window's thread.
+        ///
+        /// Checking dials GitHub; installing downloads about 160 MB and replaces
+        /// three files. Doing either on the UI thread means the window has
+        /// nothing to draw with until it finishes — Tankun saw the check as a
+        /// pause and the install as a hang, and a hang is exactly what it was.
+        ///
+        /// It looked like a crash before this app replaced the notifier, because
+        /// the running executable was being swapped underneath itself.
+        public static async void CheckForUpdates(Window owner)
         {
-            string raw = Core.Run("update -json");
+            var busy = new Cursor[] { owner.Cursor };
+            owner.Cursor = Cursors.AppStarting;
+            try
+            {
+                await CheckForUpdatesCore(owner);
+            }
+            finally
+            {
+                owner.Cursor = busy[0];
+            }
+        }
+
+        static async Task CheckForUpdatesCore(Window owner)
+        {
+            string raw = await Task.Run(() => Core.Run("update -json"));
             JsonElement j;
             try { j = JsonDocument.Parse(raw).RootElement; }
             catch
@@ -53,7 +78,9 @@ namespace Collab
             if (Show(owner, $"Update to {available}?", body, MessageBoxButton.OKCancel) != MessageBoxResult.OK)
                 return;
 
-            var result = Core.Run("update -yes");
+            // The long one: a download and three file replacements. The window
+            // keeps painting while it runs, which is the whole point.
+            var result = await Task.Run(() => Core.Run("update -yes"));
             var last = result.Trim().Split('\n');
             Show(owner, "Update",
                  string.Join("\n", last.Length > 6 ? last[^6..] : last).Trim(),
