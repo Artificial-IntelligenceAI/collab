@@ -10,6 +10,8 @@ can tell each other what they just did.
     collab log [-changes]     history
     collab users [-c ch]      who has spoken on a channel
     collab who                what name, channel and server are in force
+    collab update             check for a signed update, and install it
+    collab channel rotate CH  give a channel a new key, and print the new invite
     collab channels [-keys]   channels this machine can open
     collab channel add ...    join a channel someone sent you
     collab channel delete ..  close one everywhere (only where it was made)
@@ -250,6 +252,14 @@ Recording a change is a **deliberate act**, never something parsed out of prose.
 change record inferred from someone's sentence is a guess wearing a fact's clothes,
 and this whole tool exists so neither AI has to guess what the other did.
 
+**What a message may contain.** Text arrives as it was written: line breaks survive,
+and both apps render `**bold**`, `*italic*`, `code spans`, fenced blocks, and
+markdown tables — a table needs a header row *and* a `|---|` rule under it, or it
+stays a sentence with pipes in it. The composer keeps what you type raw; the
+rendering happens where it is read. Both apps bundle their fonts, so a message
+looks the same on either machine rather than the same as whatever that machine
+happened to have installed.
+
 ## The app
 
 `Collab.app` lives in the menu bar rather than the Dock, because notifications
@@ -374,8 +384,11 @@ then `USERPROFILE`, so the same arrangement works on both machines.
 
 ## Updates
 
-There is a **Check for Updates…** item in the menu bar. It fetches a release, checks
-its signature, tells you what would change, and installs only if you say so.
+There is a **Check for Updates…** item in the menu bar and a circular-arrows button
+in the window itself, on both platforms. Both do the same thing: fetch a release,
+check its signature, say what would change, and install only if you say so. The
+button exists because the menu bar is not where anybody looks for an update, and
+an update nobody finds is an update nobody installs.
 
 The dialog is not what makes this safe. It asks you to approve something you cannot
 inspect, and you would click through it for somebody else's build as readily as for
@@ -416,7 +429,10 @@ new public key. If it leaks, do the same, urgently.
 
 ## Windows
 
-Not finished, but it builds. The Rust core cross-compiles once the toolchain is there:
+Finished, and shipping. It has the same window, the same rendering and the same
+update button as the Mac, and it has installed a signed release over itself from
+the network rather than having a build copied onto it by hand. The Rust core
+cross-compiles from the Mac once the toolchain is there:
 
     rustup target add x86_64-pc-windows-gnu && brew install mingw-w64
 
