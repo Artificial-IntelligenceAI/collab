@@ -174,43 +174,31 @@ namespace Collab
                 first = false;
                 if (block.code)
                 {
-                    // The same bordered box the Mac draws, for the same reason:
-                    // a block has an edge, and without one a diagram sits in the
-                    // prose looking like prose that happens to be monospaced.
+                    // Shaded runs in the flow, NOT a bordered box.
                     //
-                    // NoWrap inside a horizontal scroller rather than wrapping —
-                    // a wrapped diagram is not a smaller diagram, it is a wrong
-                    // one, and every character being present is exactly what
-                    // makes that hard to notice.
-                    var inner = new TextBlock
-                    {
-                        FontFamily = Mono,
-                        Foreground = Sol.FgEm,
-                        FontSize = size - 1,
-                        TextWrapping = TextWrapping.NoWrap,
-                    };
+                    // The box was the Mac's look and it cost the thing this
+                    // window was fixed for: an InlineUIContainer sits outside
+                    // the RichTextBox's selection model, so the block could not
+                    // be selected or copied, and the TextBlock inside drew a
+                    // second caret of its own. Tankun saw two cursors and could
+                    // not copy the diagram.
+                    //
+                    // Shading each run keeps the block visually distinct while
+                    // leaving it ordinary text: selectable, copyable, one
+                    // caret. Parity with the Mac is worth less than being able
+                    // to copy what you are reading.
                     var lines = block.text.Split('\n');
                     for (int i = 0; i < lines.Length; i++)
                     {
-                        if (i > 0) inner.Inlines.Add(new LineBreak());
-                        inner.Inlines.Add(new Run(lines[i]));
-                    }
-                    var box = new Border
-                    {
-                        Background = Sol.BgAlt,
-                        BorderBrush = Sol.Rule,
-                        BorderThickness = new Thickness(1),
-                        CornerRadius = new CornerRadius(6),
-                        Padding = new Thickness(9, 6, 9, 6),
-                        Margin = new Thickness(0, 2, 0, 2),
-                        Child = new ScrollViewer
+                        if (i > 0) made.Add(new LineBreak());
+                        made.Add(new Run(lines[i])
                         {
-                            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                            Content = inner,
-                        },
-                    };
-                    made.Add(new InlineUIContainer(box) { BaselineAlignment = BaselineAlignment.Top });
+                            FontFamily = Mono,
+                            Foreground = Sol.FgEm,
+                            Background = Sol.BgAlt,
+                            FontSize = size - 1,
+                        });
+                    }
                 }
                 else
                 {
