@@ -13,6 +13,7 @@
 // slots actually used are declared, so there is less to get wrong, and each
 // one names the interface and index it belongs to.
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -97,6 +98,115 @@ namespace Collab
         static IntPtr d2d, dwrite, wic;
         static bool tried, ok;
 
+        // ── the bundled emoji font ────────────────────────────────────────
+        //
+        // Segoe UI Emoji is current — it has Unicode 16 emoji — and draws no
+        // flags at all, by Microsoft's decision rather than by omission: a Thai
+        // flag arrives as the letters TH. Noto composes them.
+        //
+        // Nothing is installed. The font is embedded in the exe, written once
+        // into the app's own data folder, and handed to DirectWrite as a custom
+        // collection built from that path. `CreateFontFileReference` uses
+        // DirectWrite's own local-file loader, so the only interface this has to
+        // implement is the collection loader itself — two small COM objects the
+        // CLR builds the vtables for, rather than vtable slot numbers guessed
+        // against headers that are not on this machine.
+        static IntPtr emojiCollection;
+        static string emojiFamily = "Segoe UI Emoji";
+        static FontLoader? loaderKeepAlive;
+
+        /// Which font the emoji actually came out of. Written to a file beside
+        /// the settings on first render, because a silent fallback to Segoe
+        /// looks exactly like success from the outside, and this whole change
+        /// exists to stop that.
+        public static string FontInUse => emojiFamily;
+
+        [ComImport, Guid("cca920e4-52f0-492b-bfa8-29c72ee0a468"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IDWriteFontCollectionLoader
+        {
+            [PreserveSig] int CreateEnumeratorFromKey(IntPtr factory, IntPtr key, uint keySize,
+                                                      out IDWriteFontFileEnumerator enumerator);
+        }
+
+        [ComImport, Guid("72755049-5ff7-435d-8348-4be97cfa6c7c"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IDWriteFontFileEnumerator
+        {
+            [PreserveSig] int MoveNext([MarshalAs(UnmanagedType.Bool)] out bool hasCurrentFile);
+            [PreserveSig] int GetCurrentFontFile(out IntPtr fontFile);
+        }
+
+        sealed class FontEnumerator : IDWriteFontFileEnumerator
+        {
+            readonly IntPtr file; int at = -1;
+            public FontEnumerator(IntPtr f) { file = f; }
+            public int MoveNext(out bool has) { at++; has = at == 0; return 0; }
+            public int GetCurrentFontFile(out IntPtr f) { f = file; Marshal.AddRef(f); return 0; }
+        }
+
+        sealed class FontLoader : IDWriteFontCollectionLoader
+        {
+            readonly IntPtr file;
+            public FontLoader(IntPtr f) { file = f; }
+            public int CreateEnumeratorFromKey(IntPtr factory, IntPtr key, uint keySize,
+                                               out IDWriteFontFileEnumerator e)
+            { e = new FontEnumerator(file); return 0; }
+        }
+
+        delegate int CreateFontFileRefFn(IntPtr self, [MarshalAs(UnmanagedType.LPWStr)] string path,
+                                         IntPtr lastWrite, out IntPtr fontFile);
+        delegate int RegisterCollLoaderFn(IntPtr self, IntPtr loader);
+        delegate int CreateCustomCollectionFn(IntPtr self, IntPtr loader, IntPtr key, uint keySize,
+                                              out IntPtr collection);
+
+        /// Writes the embedded font out once and builds the collection. Returns
+        /// false and leaves the family as Segoe if any step fails — but says so
+        /// through FontInUse rather than pretending.
+        static bool LoadEmojiFont()
+        {
+            try
+            {
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Collab");
+                Directory.CreateDirectory(dir);
+                var path = Path.Combine(dir, "NotoColorEmoji.ttf");
+
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                var resName = Array.Find(asm.GetManifestResourceNames(),
+                                         n => n.EndsWith("NotoColorEmoji.ttf", StringComparison.OrdinalIgnoreCase));
+                if (resName == null) return false;
+                using (var src = asm.GetManifestResourceStream(resName))
+                {
+                    if (src == null) return false;
+                    // Rewrite only when the size differs, so a new build replaces
+                    // an old font without rewriting ten megabytes every launch.
+                    if (!File.Exists(path) || new FileInfo(path).Length != src.Length)
+                    {
+                        using var dst = File.Create(path);
+                        src.CopyTo(dst);
+                    }
+                }
+
+                if (Slot<CreateFontFileRefFn>(dwrite, 7)(dwrite, path, IntPtr.Zero, out var fontFile) != 0)
+                    return false;
+
+                var loader = new FontLoader(fontFile);
+                var loaderPtr = Marshal.GetComInterfaceForObject<FontLoader, IDWriteFontCollectionLoader>(loader);
+                if (Slot<RegisterCollLoaderFn>(dwrite, 5)(dwrite, loaderPtr) != 0) return false;
+
+                var key = Marshal.StringToHGlobalUni("collab-noto");
+                if (Slot<CreateCustomCollectionFn>(dwrite, 4)(dwrite, loaderPtr, key, 24, out emojiCollection) != 0)
+                    return false;
+
+                loaderKeepAlive = loader;   // the collection holds a raw pointer to it
+                emojiFamily = "Noto Color Emoji";
+                return true;
+            }
+            catch { return false; }
+        }
+
         static bool Init()
         {
             if (tried) return ok;
@@ -108,6 +218,15 @@ namespace Collab
                 if (CoCreateInstance(ref CLSID_WICImagingFactory, IntPtr.Zero, 1 /* inproc */,
                                      ref IID_IWICImagingFactory, out wic) != 0) return false;
                 ok = true;
+                LoadEmojiFont();
+                try
+                {
+                    var dir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Collab");
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir, "emoji-font.txt"), emojiFamily);
+                }
+                catch { }
             }
             catch { ok = false; }
             return ok;
@@ -139,7 +258,7 @@ namespace Collab
                 };
                 if (Slot<CreateWicRTFn>(d2d, 13)(d2d, bmp, ref props, out rt) != 0) return null;
 
-                if (Slot<CreateTextFormatFn>(dwrite, 15)(dwrite, "Segoe UI Emoji", IntPtr.Zero,
+                if (Slot<CreateTextFormatFn>(dwrite, 15)(dwrite, emojiFamily, emojiCollection,
                         400 /* normal */, 0 /* normal */, 5 /* normal */, (float)px, "en-us", out format) != 0)
                     return null;
                 if (Slot<CreateTextLayoutFn>(dwrite, 18)(dwrite, text, (uint)text.Length, format,

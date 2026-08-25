@@ -40,5 +40,10 @@
   <ItemGroup>
     <Resource Include="Fonts\JetBrainsMono-Regular.ttf" />
     <Resource Include="Fonts\JetBrainsMono-Bold.ttf" />
+    <!-- The emoji font, carried for one reason: Segoe UI Emoji is current and
+         deliberately draws no flags, so a Thai flag arrives as the letters TH.
+         Noto composes them. Extracted to the app's own data folder at startup
+         and handed to DirectWrite from there; nothing is installed. -->
+    <EmbeddedResource Include="Fonts\NotoColorEmoji.ttf" />
   </ItemGroup>
 </Project>
