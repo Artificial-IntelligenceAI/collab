@@ -307,9 +307,29 @@ namespace Collab
                         Suggest.Visibility = Visibility.Collapsed; e.Handled = true; return;
                 }
             }
-            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            // Enter sends; Enter with Shift or Ctrl makes a line. AcceptsReturn
+            // is on now, so the box would otherwise swallow every Return — and
+            // it was off in the first place because until 3.1.1 a message could
+            // not carry a line break at all.
+            if (e.Key == Key.Enter)
             {
-                OnSend(s, e); e.Handled = true;
+                var mods = Keyboard.Modifiers;
+                if (mods == ModifierKeys.None)
+                {
+                    OnSend(s, e); e.Handled = true;
+                }
+                else if (mods == ModifierKeys.Shift || mods == ModifierKeys.Control)
+                {
+                    // Nothing to break yet: a leading line break is trimmed on
+                    // the way out, but the box grows for it, so an empty
+                    // composer would sit there two lines tall and blank.
+                    if (Entry.Text.Trim().Length == 0) { e.Handled = true; return; }
+                    var at = Entry.SelectionStart;
+                    Entry.Text = Entry.Text.Remove(at, Entry.SelectionLength).Insert(at, "\n");
+                    Entry.SelectionStart = at + 1;
+                    Entry.SelectionLength = 0;
+                    e.Handled = true;
+                }
             }
         }
 

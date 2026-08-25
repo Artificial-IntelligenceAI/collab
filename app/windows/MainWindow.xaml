@@ -161,7 +161,7 @@
             <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
           <TextBox x:Name="Entry" Grid.Column="0" Padding="8,6" FontSize="13"
-                   BorderThickness="1" AcceptsReturn="False" MaxLines="5"
+                   BorderThickness="1" AcceptsReturn="True" MaxLines="5"
                    TextWrapping="Wrap" PreviewKeyDown="OnKey" TextChanged="OnDraft"/>
           <Button x:Name="SendBtn" Grid.Column="1" Content="Send" Click="OnSend"
                   Padding="18,6" Margin="8,0,0,0" FontWeight="SemiBold"/>

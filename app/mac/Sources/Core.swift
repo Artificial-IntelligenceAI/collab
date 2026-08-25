@@ -411,7 +411,13 @@ final class Core: ObservableObject {
     }
 
     func post(_ text: String, to channel: String) throws {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        // No flattening. This line replaced every newline with a space, and it
+        // outlived the reason for it: when a message could not carry one, the
+        // choice was between a space and losing the break entirely. Now that
+        // they survive the wire, this was the last place still deciding they
+        // should not — the composer grew a key for line breaks and this quietly
+        // undid it on the way out.
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         _ = try run(["post", t], channel: channel)
     }

@@ -29,7 +29,7 @@ cp Fonts/JetBrainsMono-Regular.ttf "$OUT/Contents/Resources/Fonts/"
 cp Fonts/JetBrainsMono-Bold.ttf    "$OUT/Contents/Resources/Fonts/"
 
 swiftc -O -target arm64-apple-macos14 -parse-as-library \
-  Sources/Theme.swift Sources/Core.swift Sources/Channels.swift Sources/Views.swift Sources/Update.swift Sources/CollabApp.swift \
+  Sources/Theme.swift Sources/Core.swift Sources/Channels.swift Sources/Composer.swift Sources/Views.swift Sources/Update.swift Sources/CollabApp.swift \
   -o "$OUT/Contents/MacOS/Collab"
 
 # Ad-hoc signature with a stable identifier, so the notification permission you

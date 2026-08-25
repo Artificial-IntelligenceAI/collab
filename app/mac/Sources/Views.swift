@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var note: String?
     @State private var pickedInitial = false
     @State private var mentionPick = 0
+    @State private var composerHeight: CGFloat = 24
 
     /// You post where you are looking. Reading one channel and typing into
     /// another would be a nasty little trap.
@@ -202,42 +203,40 @@ struct ContentView: View {
             Divider().overlay(Sol.rule)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .bottom, spacing: 9) {
-                    TextField("Say something on #\(postChannel)…", text: $draft, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...5)
-                        .onSubmit { if suggestions.isEmpty { send() } }
-                        // While the list is open Return takes the highlighted
-                        // name instead of sending, which is what makes it feel
-                        // like a suggestion rather than an obstacle.
-                        .onKeyPress { press in
-                            // Command-Return is what a person reaches for when
-                            // they want a second line and Return is taken. It
-                            // was falling through to submit, so the reflex sent
-                            // a half-written message instead of breaking it —
-                            // which is worth handling now that a newline
-                            // survives being sent at all.
-                            if press.key == .return, press.modifiers.contains(.command) {
-                                draft += "\n"
-                                return .handled
-                            }
-                            guard !suggestions.isEmpty else { return .ignored }
-                            switch press.key {
-                            case .downArrow:
-                                mentionPick = min(mentionPick + 1, suggestions.count - 1)
-                                return .handled
-                            case .upArrow:
-                                mentionPick = max(mentionPick - 1, 0)
-                                return .handled
-                            case .return, .tab:
-                                accept(suggestions[min(mentionPick, suggestions.count - 1)].name)
-                                return .handled
-                            case .escape:
-                                draft += " "
-                                return .handled
-                            default:
-                                return .ignored
-                            }
-                        }
+                    Composer(text: $draft,
+                             placeholder: "Say something on #\(postChannel)…",
+                             onReturn: {
+                                 if suggestions.isEmpty {
+                                     send()
+                                 } else {
+                                     accept(suggestions[min(mentionPick, suggestions.count - 1)].name)
+                                 }
+                             },
+                             onKey: { key in
+                                 // The list is the only thing with a claim on
+                                 // these keys, and only while it is open.
+                                 guard !suggestions.isEmpty else { return false }
+                                 switch key {
+                                 case .down:
+                                     mentionPick = min(mentionPick + 1, suggestions.count - 1)
+                                 case .up:
+                                     mentionPick = max(mentionPick - 1, 0)
+                                 case .tab:
+                                     accept(suggestions[min(mentionPick, suggestions.count - 1)].name)
+                                 case .escape:
+                                     draft += " "
+                                 }
+                                 return true
+                             },
+                             onHeight: { h in
+                                 // One line to five, the same range the field
+                                 // had. Past that it scrolls rather than
+                                 // eating the window.
+                                 composerHeight = min(max(h, 24), 88)
+                             })
+                        .frame(height: composerHeight)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Sol.bg))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Sol.rule, lineWidth: 1))
                     Button("Send", action: send)
                         .buttonStyle(.borderedProminent)
                         .tint(Sol.blue)
