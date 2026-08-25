@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "collab"
-version = "3.2.5"
+version = "3.2.6"
 dependencies = [
  "base64",
  "chacha20poly1305",
