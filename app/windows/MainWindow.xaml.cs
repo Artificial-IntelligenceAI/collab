@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -295,12 +296,32 @@ namespace Collab
             var target = channel;
             Entry.Text = "";
             Suggest.Visibility = Visibility.Collapsed;
-            var reply = core.Post(target, text);
-            if (reply.StartsWith("collab:") || reply.Contains("REFUSED"))
+            // Off the UI thread. Posting shells out to the CLI, which dials the
+            // server — and when the message carries an @, it also pulls the
+            // channel's speaker list before sending. Measured from the VM that
+            // is 2.3s for a plain message and 4.5s or more for a mention, and
+            // every one of those seconds was a frozen window.
+            //
+            // The text is cleared immediately, so the send feels done while it
+            // finishes; only a refusal comes back, and it comes back to the
+            // footer where a refusal belongs.
+            Footer.Text = "sending…";
+            Footer.Foreground = Sol.FgDim;
+            Task.Run(() => core.Post(target, text)).ContinueWith(t =>
             {
-                Footer.Text = reply.Split('\n')[0];
-                Footer.Foreground = Sol.Red;
-            }
+                var reply = t.IsFaulted ? "collab: " + t.Exception?.GetBaseException().Message
+                                        : t.Result;
+                if (reply.StartsWith("collab:") || reply.Contains("REFUSED"))
+                {
+                    Footer.Text = reply.Split('\n')[0];
+                    Footer.Foreground = Sol.Red;
+                }
+                else
+                {
+                    Footer.Text = $"posting as {core.DisplayName(channel)} on #{channel}";
+                    Footer.Foreground = Sol.FgDim;
+                }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         void OnAttach(object s, RoutedEventArgs e)

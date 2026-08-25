@@ -372,13 +372,21 @@ namespace Collab
                 if (img == null) { buffer.Append(cluster); continue; }
 
                 FlushText();
+                // Sized and seated on the text baseline. The image is now
+                // cropped to its ink, so its height is the glyph itself rather
+                // than the font's padding — which is what let a Segoe-tuned
+                // offset leave Noto's emoji floating above the line.
+                //
+                // A cap-height-ish box, dropped by a fifth so it sits on the
+                // baseline rather than hanging from the ascender.
+                double box = size * 1.2;
                 made.Add(new InlineUIContainer(new Image
                 {
                     Source = img,
-                    Width = size * 1.35,
-                    Height = size * 1.35,
+                    Height = box,
                     Stretch = Stretch.Uniform,
-                    Margin = new Thickness(0, 0, 0, -size * 0.25),
+                    StretchDirection = StretchDirection.Both,
+                    Margin = new Thickness(0, 0, 0, -size * 0.18),
                 })
                 { BaselineAlignment = BaselineAlignment.Baseline });
             }

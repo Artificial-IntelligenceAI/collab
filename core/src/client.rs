@@ -655,7 +655,7 @@ pub fn users_cmd(channel: Option<&str>, all: bool) {
 /// The message is still on the channel and still comes back from the window,
 /// the log and `collab_recent`. It is the *stream* it stays out of, which is
 /// the only place an AI session finds out about anything unasked.
-pub fn reach_note(channel: &str, text: &str) -> Option<String> {
+pub fn reach_note_from(channel: &str, text: &str, people: &[User]) -> Option<String> {
     let wanted = crate::msg::mentions_in(text);
     if wanted.is_empty() {
         return None;
@@ -672,7 +672,7 @@ pub fn reach_note(channel: &str, text: &str) -> Option<String> {
         .iter()
         .map(|n| crate::msg::addressable(n))
         .collect();
-    let others: Vec<String> = users_on(channel)
+    let others: Vec<String> = people
         .iter()
         .map(|u| crate::msg::addressable(&u.name))
         .filter(|n| !wanted.contains(n) && !mine.contains(n))
@@ -693,7 +693,32 @@ pub fn reach_note(channel: &str, text: &str) -> Option<String> {
     ))
 }
 
+/// The mention check and the delivery note, from one look at the channel.
+///
+/// Both need to know who has spoken there, and `users_on` is not cheap: it
+/// dials the server and pulls the channel's whole history. Calling it twice
+/// doubled the cost of every post carrying an `@`, on the Windows GUI's UI
+/// thread, which is a freeze rather than a slowdown — Tankun hit it the same
+/// afternoon the note was added.
+pub fn mention_check(channel: &str, text: &str) -> Result<Option<String>, String> {
+    if crate::msg::mentions_in(text).is_empty() {
+        return Ok(None); // the common case still pays nothing
+    }
+    let people = users_on(channel);
+    mentions_reach_someone_with(channel, text, &people)?;
+    Ok(reach_note_from(channel, text, &people))
+}
+
 pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
+    let wanted = crate::msg::mentions_in(text);
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let people = users_on(channel);
+    mentions_reach_someone_with(channel, text, &people)
+}
+
+fn mentions_reach_someone_with(channel: &str, text: &str, people: &[User]) -> Result<(), String> {
     let wanted = crate::msg::mentions_in(text);
     if wanted.is_empty() {
         return Ok(()); // the common case pays nothing
@@ -702,7 +727,7 @@ pub fn mentions_reach_someone(channel: &str, text: &str) -> Result<(), String> {
         .iter()
         .map(|n| crate::msg::addressable(n))
         .collect();
-    for u in users_on(channel) {
+    for u in people {
         let n = crate::msg::addressable(&u.name);
         if !known.contains(&n) {
             known.push(n);
@@ -741,11 +766,13 @@ pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
         eprintln!("usage: collab post [-c channel] \"message\"");
         std::process::exit(2);
     }
-    if let Err(e) = mentions_reach_someone(&channel, &text) {
-        eprintln!("collab: {e}");
-        std::process::exit(2);
-    }
-    let text_for_note = text.clone();
+    let note = match mention_check(&channel, &text) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("collab: {e}");
+            std::process::exit(2);
+        }
+    };
     let m = Msg {
         kind: KIND_CHAT.into(),
         via: if via_ai {
@@ -756,7 +783,6 @@ pub fn post(text: &str, via_ai: bool, channel: Option<&str>) {
         text,
         ..Default::default()
     };
-    let note = reach_note(&channel, &text_for_note);
     if let Err(e) = send_full(&channel, channels::display_for(&channel).as_deref(), m) {
         fail(e)
     }

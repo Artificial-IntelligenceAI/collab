@@ -533,15 +533,16 @@ you subscribe again."
                 Ok(c) => c,
                 Err(e) => return text(e),
             };
-            if let Err(e) = client::mentions_reach_someone(&to, &m) {
-                return text(format!("REFUSED: {e}"));
-            }
+            let note = match client::mention_check(&to, &m) {
+                Ok(n) => n,
+                Err(e) => return text(format!("REFUSED: {e}")),
+            };
             match client::send_full(
                 &to,
                 posting_name(session_name).as_deref(),
                 Msg { kind: KIND_CHAT.into(), via: ACTOR_AI.into(), text: m.clone(), ..Default::default() },
             ) {
-                Ok(()) => match client::reach_note(&to, &m) {
+                Ok(()) => match note {
                     Some(n) => text(format!("sent: {m}\n\n{n}")),
                     None => text(format!("sent: {m}")),
                 },

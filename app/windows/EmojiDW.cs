@@ -281,8 +281,37 @@ namespace Collab
                 if (Slot<CopyPixelsFn>(bmp, 7)(bmp, IntPtr.Zero, stride, (uint)buffer.Length, buffer) != 0)
                     return null;
 
-                var img = BitmapSource.Create((int)side, (int)side, 96, 96,
-                    PixelFormats.Pbgra32, null, buffer, (int)stride);
+                // Crop to the ink.
+                //
+                // The glyph is drawn into a box twice the em, and where it lands
+                // inside that box is the font's business, not ours: Segoe and
+                // Noto pad differently, so a placement nudge tuned for one puts
+                // the other's emoji above the line. Cropping to the pixels that
+                // are actually drawn removes the font from the question, and the
+                // caller can then place a known quantity.
+                int minX = (int)side, minY = (int)side, maxX = -1, maxY = -1;
+                for (int y = 0; y < side; y++)
+                {
+                    int row = y * (int)stride;
+                    for (int x = 0; x < side; x++)
+                    {
+                        if (buffer[row + x * 4 + 3] == 0) continue;   // alpha
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+                if (maxX < 0) return null;                            // drew nothing
+
+                int cw = maxX - minX + 1, ch = maxY - minY + 1;
+                var cropped = new byte[cw * ch * 4];
+                for (int y = 0; y < ch; y++)
+                    Array.Copy(buffer, (minY + y) * (int)stride + minX * 4,
+                               cropped, y * cw * 4, cw * 4);
+
+                var img = BitmapSource.Create(cw, ch, 96, 96,
+                    PixelFormats.Pbgra32, null, cropped, cw * 4);
                 img.Freeze();
                 return img;
             }
