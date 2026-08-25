@@ -111,7 +111,21 @@ namespace Collab
                     for (int i = 0; i < lines.Length; i++)
                     {
                         if (i > 0) p.Inlines.Add(new LineBreak());
-                        p.Inlines.Add(new Run(lines[i]));
+                        // Through the emoji path, not as a plain Run. A block is
+                        // still text somebody wrote, and an emoji in a diagram
+                        // was coming out as a monochrome glyph while the same
+                        // character three words earlier drew in colour.
+                        //
+                        // Nothing inside a block is markup, so the segment is
+                        // marked code and its runs are then recoloured to the
+                        // block's own foreground rather than inline code's cyan.
+                        var made = new List<Inline>();
+                        BuildSeg(new Seg(lines[i], false, false, true), size, made);
+                        foreach (var inl in made)
+                        {
+                            if (inl is Run r) r.Foreground = Sol.FgEm;
+                            p.Inlines.Add(inl);
+                        }
                     }
                     yield return p;
                 }
