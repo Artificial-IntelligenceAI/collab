@@ -50,7 +50,7 @@
           <!-- plain text -->
           <RichTextBox local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
                        Visibility="{Binding IsChat, Converter={StaticResource Show}}"
-                       IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False"
+                       IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False" IsReadOnlyCaretVisible="False"
                        Background="Transparent" BorderThickness="0" Padding="0"
                        VerticalScrollBarVisibility="Disabled"
                        HorizontalScrollBarVisibility="Disabled"
@@ -69,7 +69,7 @@
                        IsReadOnly="True" IsTabStop="False" Background="Transparent"
                        BorderThickness="0" Padding="0"/>
               <RichTextBox local:EmojiText.Source="{Binding Text}" Foreground="{Binding TextBrush}"
-                           IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False"
+                           IsReadOnly="True" IsDocumentEnabled="True" IsTabStop="False" IsReadOnlyCaretVisible="False"
                            Background="Transparent" BorderThickness="0" Padding="0"
                            VerticalScrollBarVisibility="Disabled"
                            HorizontalScrollBarVisibility="Disabled"

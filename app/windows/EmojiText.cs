@@ -55,17 +55,19 @@ namespace Collab
                         PagePadding = new Thickness(0),
                         FontFamily = rtb.FontFamily,
                         FontSize = rtb.FontSize,
-                        // FlowDocument justifies by default, and justification
-                        // works by stretching the spaces in a line. A border row
-                        // is solid box-drawing with nothing to stretch; the row
-                        // between it is full of spaces and stretches — so a table
-                        // shears by exactly the rows that contain text.
+                        // Ragged right, not justified.
                         //
-                        // Every other suspect was measured and cleared first: the
-                        // font resolves to JetBrains Mono, every character in the
-                        // diagram advances 0.6000 em including the box-drawing,
-                        // the source rows are equal length, and none of the
-                        // font's nine ligatures fire on them.
+                        // FlowDocument justifies by default, and justification
+                        // stretches the spaces in a line — which would shear a
+                        // table by exactly the rows that contain text. Kept
+                        // because chat is read ragged-right everywhere else and
+                        // because a monospace block must never be stretched.
+                        //
+                        // Honesty about why this was written: it was added while
+                        // chasing a misaligned block that turned out to be a
+                        // typo in the test message — its border rows were 31
+                        // characters and its text row 32. Justification was not
+                        // the cause of anything observed. It is right anyway.
                         TextAlignment = TextAlignment.Left,
                     };
                     foreach (var b in BuildBlocks(text, rtb.FontSize)) doc.Blocks.Add(b);
@@ -294,6 +296,27 @@ namespace Collab
                     }
                 }
                 else lines.Add("glyph face: could not be opened");
+
+                // What WPF actually lays out, which is the only number that
+                // decides whether a table lines up. The metrics above are what
+                // the font claims; these are what the text stack does with it.
+                lines.Add("");
+                lines.Add("laid-out width of ten characters, at block size:");
+                var probeFace = new Typeface(Mono, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                foreach (var probe in new[] {
+                    "0123456789", "MMMMMMMMMM", "          ",
+                    "──────────", "││││││││││", "┌┐└┘├┤┬┴┼─",
+                    "○○○○○○○○○○", "▶▶▶▶▶▶▶▶▶▶", "→→→→→→→→→→",
+                    "│ Linear  ", "abcdefghij",
+                    // The three rows from Tankun's screenshot, exactly.
+                    "   ┌──────────┬────────────────┐",
+                    "   │ Linear   │ pastes accepted│",
+                    "   └──────────┴────────────────┘" })
+                {
+                    var ft = new FormattedText(probe, System.Globalization.CultureInfo.InvariantCulture,
+                        FlowDirection.LeftToRight, probeFace, size - 1, System.Windows.Media.Brushes.Black, 1.0);
+                    lines.Add($"  {ft.WidthIncludingTrailingWhitespace,8:0.000}   {probe}");
+                }
                 var dir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Collab");
                 Directory.CreateDirectory(dir);
