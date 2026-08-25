@@ -23,6 +23,37 @@ use std::path::{Path, PathBuf};
 pub const PUBLIC_KEY: &str = "R9lWnR/OWXcy5XD/LZHrF3+MdnCwu2YKCHleVaTIgOc=";
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A path fit to show somebody.
+///
+/// Canonicalising on Windows yields the `\\?\` extended-length form. That
+/// prefix is an instruction to the filesystem API, not part of the name, and
+/// showing it hands a person an implementation detail while telling them it is
+/// where their file lives.
+fn tidy_path(p: &std::path::Path) -> String {
+    let s = p.display().to_string();
+    s.strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| s.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or(s)
+}
+
+/// How to pick the new build up, on the machine actually running.
+///
+/// This said `launchctl kickstart` unconditionally — a macOS command, shown in
+/// a dialog on Windows, where launchctl does not exist. An instruction that
+/// cannot be followed is worse than none: it tells somebody the update is
+/// incomplete and then gives them nothing to do about it.
+fn restart_hint() -> String {
+    if cfg!(target_os = "windows") {
+        "close and reopen Collab to pick it up.".to_string()
+    } else {
+        "restart the server and the app to pick it up:\n  \
+         launchctl kickstart -k gui/$(id -u)/com.tankun.collab"
+            .to_string()
+    }
+}
+
 pub const MANIFEST: &str = "collab-release.json";
 
 /// The project's own releases. `latest` rather than a tag, so a build does not
@@ -366,7 +397,11 @@ pub fn install(dir: &Path) -> Result<Vec<String>, String> {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755));
         }
-        done.push(target.display().to_string());
+        // Without the \\?\ prefix. Windows canonicalisation adds it, and it is
+        // an instruction to the filesystem API rather than part of the name —
+        // a person reading "\\?\C:\Users\..." out of a dialog has been handed
+        // an implementation detail and told it is where their file is.
+        done.push(tidy_path(&target));
     }
 
     let app_tar = dir.join("Collab.app.tar.gz");
@@ -491,7 +526,6 @@ pub fn update_cmd(install_it: bool, as_json: bool) {
         for d in staged {
             println!("  {d}");
         }
-        println!("\nrestart the server and the app to pick it up:");
-        println!("  launchctl kickstart -k gui/$(id -u)/com.tankun.collab");
+        println!("\n{}", restart_hint());
     }
 }
