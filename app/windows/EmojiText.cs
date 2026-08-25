@@ -49,14 +49,14 @@ namespace Collab
                 // WinUI's IsTextSelectionEnabled — and a plain TextBox cannot
                 // hold the inline images the emoji are made of.
                 case RichTextBox rtb:
-                    var para = new Paragraph { Margin = new Thickness(0) };
-                    foreach (var i in Build(text, rtb.FontSize)) para.Inlines.Add(i);
-                    rtb.Document = new FlowDocument(para)
+                    var doc = new FlowDocument
                     {
                         PagePadding = new Thickness(0),
                         FontFamily = rtb.FontFamily,
                         FontSize = rtb.FontSize,
                     };
+                    foreach (var b in BuildBlocks(text, rtb.FontSize)) doc.Blocks.Add(b);
+                    rtb.Document = doc;
                     break;
             }
         }
@@ -79,6 +79,55 @@ namespace Collab
                 if (cp is 0x00A9 or 0x00AE or 0x2122) return true;  // © ® ™
             }
             return false;
+        }
+
+        /// A message as document blocks, one paragraph per fenced block.
+        ///
+        /// A paragraph's Background paints the whole block, edge to edge and
+        /// across every line. Shading the runs instead followed each line's own
+        /// width, so a diagram came out as a staircase of different-length
+        /// stripes — which is what Tankun saw, and worse than no shading.
+        ///
+        /// And a paragraph is still text. The bordered box before it was an
+        /// InlineUIContainer, which sits outside the selection model: it could
+        /// not be copied and drew a second caret. This keeps the block visually
+        /// distinct while leaving every character selectable.
+        static IEnumerable<Block> BuildBlocks(string text, double size)
+        {
+            foreach (var block in Fences(text))
+            {
+                var lines = block.text.Split('\n');
+                if (block.code)
+                {
+                    var p = new Paragraph
+                    {
+                        Margin = new Thickness(0, 3, 0, 3),
+                        Padding = new Thickness(9, 6, 9, 6),
+                        Background = Sol.BgAlt,
+                        FontFamily = Mono,
+                        FontSize = size - 1,
+                        Foreground = Sol.FgEm,
+                    };
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (i > 0) p.Inlines.Add(new LineBreak());
+                        p.Inlines.Add(new Run(lines[i]));
+                    }
+                    yield return p;
+                }
+                else
+                {
+                    var p = new Paragraph { Margin = new Thickness(0) };
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        if (i > 0) p.Inlines.Add(new LineBreak());
+                        var made = new List<Inline>();
+                        foreach (var seg in Split(lines[i])) BuildSeg(seg, size, made);
+                        foreach (var inl in made) p.Inlines.Add(inl);
+                    }
+                    yield return p;
+                }
+            }
         }
 
         /// One stretch of text with the inline markdown that applies to it.
