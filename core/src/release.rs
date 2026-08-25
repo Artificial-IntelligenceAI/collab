@@ -24,6 +24,32 @@ pub const PUBLIC_KEY: &str = "R9lWnR/OWXcy5XD/LZHrF3+MdnCwu2YKCHleVaTIgOc=";
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Whether `offered` is actually a later version than `running`.
+///
+/// This was `!=`, which is not a comparison — any difference counted as an
+/// update, so a published release that lagged the local build offered itself as
+/// one. That is not hypothetical: the moment a release is cut, the machine that
+/// cut it is ahead of what is published, and it was being offered a downgrade
+/// of its own work.
+///
+/// Numeric per part, so 3.10.0 is after 3.9.0 rather than before it. A version
+/// that will not parse is treated as not newer: refusing to update on a
+/// malformed version is a worse outcome than one lost update, and silently
+/// installing something older is worse than both.
+fn is_newer(offered: &str, running: &str) -> bool {
+    fn parts(v: &str) -> Option<(u64, u64, u64)> {
+        let mut it = v.trim().split('.');
+        let a = it.next()?.parse().ok()?;
+        let b = it.next().unwrap_or("0").parse().ok()?;
+        let c = it.next().unwrap_or("0").parse().ok()?;
+        Some((a, b, c))
+    }
+    match (parts(offered), parts(running)) {
+        (Some(o), Some(r)) => o > r,
+        _ => false,
+    }
+}
+
 /// A path fit to show somebody.
 ///
 /// Canonicalising on Windows yields the `\\?\` extended-length form. That
@@ -479,7 +505,7 @@ pub fn update_cmd(install_it: bool, as_json: bool) {
             std::process::exit(1);
         }
     };
-    let newer = av.manifest.version != VERSION;
+    let newer = is_newer(&av.manifest.version, VERSION);
     if as_json {
         println!(
             "{}",
