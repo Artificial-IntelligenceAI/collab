@@ -391,6 +391,20 @@ namespace Collab
                 //
                 // A cap-height-ish box, dropped by a fifth so it sits on the
                 // baseline rather than hanging from the ascender.
+                // In a block, an emoji has to be exactly two cells wide.
+                //
+                // A monospace table lines up because every character advances
+                // the same distance. An emoji sized by its own aspect ratio
+                // advances by whatever it happens to be — so a row containing
+                // one is wider than its neighbours and the columns shear. Every
+                // character is present and the table is wrong, which is the
+                // shape of thing that survives a long time unnoticed.
+                //
+                // JetBrains Mono advances 600/1000 em, measured from the font
+                // rather than assumed, so two cells is 1.2 em of the block's own
+                // size. The glyph is fitted inside that box rather than setting
+                // it: a flag is wider than a face, and both must still advance
+                // the same.
                 double box = size * 1.2;
                 var pic = new Image
                 {
@@ -400,6 +414,11 @@ namespace Collab
                     StretchDirection = StretchDirection.Both,
                     Margin = new Thickness(0, 0, 0, -size * 0.18),
                 };
+                if (seg.Code)
+                {
+                    double cell = (size - 1) * 0.6;
+                    pic.Width = cell * 2;
+                }
                 // Resample on the way down rather than dropping pixels.
                 RenderOptions.SetBitmapScalingMode(pic, BitmapScalingMode.HighQuality);
                 made.Add(new InlineUIContainer(pic)
