@@ -466,7 +466,19 @@ namespace Collab
         static Table BuildTable(List<List<string>> rows, List<TextAlignment> align, double size)
         {
             int cols = align.Count;
-            var t = new Table { CellSpacing = 0, Margin = new Thickness(0, 3, 0, 3) };
+            // The box the Mac draws around its tables. A Table is a Block, so it
+            // carries the background and rule itself — no UI element wrapping
+            // it, which would take the whole thing out of the selection model
+            // the way the bordered code block did this morning.
+            var t = new Table
+            {
+                CellSpacing = 0,
+                Margin = new Thickness(0, 3, 0, 3),
+                Padding = new Thickness(4),
+                Background = Sol.BgAlt,
+                BorderBrush = Sol.Rule,
+                BorderThickness = new Thickness(1),
+            };
 
             // Measured, not Auto.
             //
