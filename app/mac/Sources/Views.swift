@@ -400,7 +400,7 @@ struct FileChip: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(file.name)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(Sol.mono(12, weight: .medium))
                     .foregroundStyle(Sol.fgEm)
                 Text(subtitle)
                     .font(.system(size: 11))
@@ -503,7 +503,7 @@ struct ChatList: View {
                 FileChip(msg: m, file: f).padding(.vertical, 2)
             } else if m.isChange {
                 ActionBadge(action: m.action ?? "edited")
-                Text(m.target ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Sol.cyan)
+                Text(m.target ?? "").font(Sol.mono(12)).foregroundStyle(Sol.cyan)
                 Text("— " + m.text).foregroundStyle(Sol.fgEm)
             } else {
                 MessageBody(text: m.text, me: core.me)
@@ -539,7 +539,7 @@ struct MessageBody: View {
                     // is not a smaller diagram, it is a wrong one.
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(part.text)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(Sol.mono(12))
                             .foregroundStyle(Sol.fgEm)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: true, vertical: false)
@@ -702,7 +702,7 @@ struct ChangesList: View {
                                         ActionBadge(action: m.action ?? "edited")
                                             .frame(width: 68, alignment: .center)
                                         Text(m.target ?? "")
-                                            .font(.system(size: 12, design: .monospaced))
+                                            .font(Sol.mono(12))
                                             .foregroundStyle(Sol.cyan)
                                         Text(m.text).foregroundStyle(Sol.fg)
                                         Spacer(minLength: 0)

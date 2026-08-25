@@ -27,5 +27,7 @@
       <key>CFBundleURLSchemes</key> <array><string>collab</string></array>
     </dict>
   </array>
+	<key>ATSApplicationFontsPath</key>
+	<string>Fonts</string>
 </dict>
 </plist>

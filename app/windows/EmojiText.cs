@@ -198,7 +198,13 @@ namespace Collab
             return segs;
         }
 
-        static readonly FontFamily Mono = new FontFamily("Cascadia Mono, Consolas, Courier New");
+        /// Bundled, not looked up. The old stack named Cascadia Mono first and
+        /// this machine does not have it, so every block silently rendered in
+        /// Consolas while the Mac used SF Mono — the same diagram, two shapes,
+        /// and nothing to say so. Carrying the file is the only way the two
+        /// windows agree about what a monospace column is.
+        static readonly FontFamily Mono = new FontFamily(
+            new Uri("pack://application:,,,/"), "./Fonts/#JetBrains Mono");
 
         /// Who this window is, so the mention aimed at it can be picked out of the
         /// ones aimed at everybody else. Set once by the main window; empty just

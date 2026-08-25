@@ -31,4 +31,14 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <!-- The block font, carried rather than hoped for. The stack used to be
+       "Cascadia Mono, Consolas, Courier New" and this VM has none of the first
+       one — so it silently fell back, and a diagram drawn here and read there
+       were different shapes. A bundled font is the only way two machines agree.
+       OFL 1.1; the licence travels with it in assets/fonts/OFL.txt. -->
+  <ItemGroup>
+    <Resource Include="Fonts\JetBrainsMono-Regular.ttf" />
+    <Resource Include="Fonts\JetBrainsMono-Bold.ttf" />
+  </ItemGroup>
 </Project>

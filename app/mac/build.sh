@@ -20,6 +20,13 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp Info.plist "$OUT/Contents/Info.plist"
 cp "$ICONS/collab.icns" "$OUT/Contents/Resources/collab.icns"
+# The block font travels with the app. Info.plist points ATSApplicationFontsPath
+# at this directory, so it is available to the process without being installed
+# on the machine — the same file the Windows build carries, so a diagram drawn
+# on one and read on the other is the same shape.
+mkdir -p "$OUT/Contents/Resources/Fonts"
+cp Fonts/JetBrainsMono-Regular.ttf "$OUT/Contents/Resources/Fonts/"
+cp Fonts/JetBrainsMono-Bold.ttf    "$OUT/Contents/Resources/Fonts/"
 
 swiftc -O -target arm64-apple-macos14 -parse-as-library \
   Sources/Theme.swift Sources/Core.swift Sources/Channels.swift Sources/Views.swift Sources/Update.swift Sources/CollabApp.swift \

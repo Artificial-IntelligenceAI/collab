@@ -4,6 +4,17 @@ import AppKit
 import SwiftUI
 
 enum Sol {
+    /// The bundled block font, not the system one. Both apps carry the same
+    /// file, so a diagram drawn on one machine is the same shape when read on
+    /// the other — which it was not: this drew in SF Mono while Windows fell
+    /// back to Consolas, and nothing said the columns were different widths.
+    ///
+    /// Falls back to the system monospace if the bundle is ever missing it,
+    /// because a wrong font is better than no text.
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.custom("JetBrains Mono", size: size).weight(weight)
+    }
+
     static let base03 = NSColor(srgbRed: 0x00 / 255, green: 0x2b / 255, blue: 0x36 / 255, alpha: 1)
     static let base02 = NSColor(srgbRed: 0x07 / 255, green: 0x36 / 255, blue: 0x42 / 255, alpha: 1)
     static let base01 = NSColor(srgbRed: 0x58 / 255, green: 0x6e / 255, blue: 0x75 / 255, alpha: 1)
