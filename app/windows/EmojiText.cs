@@ -14,6 +14,7 @@
 // wrapping, selection and hit testing — the string becomes runs and inline
 // images, and WPF keeps doing the layout it is good at.
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Windows;
@@ -54,6 +55,18 @@ namespace Collab
                         PagePadding = new Thickness(0),
                         FontFamily = rtb.FontFamily,
                         FontSize = rtb.FontSize,
+                        // FlowDocument justifies by default, and justification
+                        // works by stretching the spaces in a line. A border row
+                        // is solid box-drawing with nothing to stretch; the row
+                        // between it is full of spaces and stretches — so a table
+                        // shears by exactly the rows that contain text.
+                        //
+                        // Every other suspect was measured and cleared first: the
+                        // font resolves to JetBrains Mono, every character in the
+                        // diagram advances 0.6000 em including the box-drawing,
+                        // the source rows are equal length, and none of the
+                        // font's nine ligatures fire on them.
+                        TextAlignment = TextAlignment.Left,
                     };
                     foreach (var b in BuildBlocks(text, rtb.FontSize)) doc.Blocks.Add(b);
                     rtb.Document = doc;
@@ -125,6 +138,7 @@ namespace Collab
         /// distinct while leaving every character selectable.
         static IEnumerable<Block> BuildBlocks(string text, double size)
         {
+            ReportFont(size);
             foreach (var block in Fences(text))
             {
                 var lines = block.text.Split('\n');
@@ -132,6 +146,7 @@ namespace Collab
                 {
                     var p = new Paragraph
                     {
+                        TextAlignment = TextAlignment.Left,
                         Margin = new Thickness(0, 3, 0, 3),
                         Padding = new Thickness(9, 6, 9, 6),
                         Background = Sol.BgAlt,
@@ -169,7 +184,7 @@ namespace Collab
                 }
                 else
                 {
-                    var p = new Paragraph { Margin = new Thickness(0) };
+                    var p = new Paragraph { Margin = new Thickness(0), TextAlignment = TextAlignment.Left };
                     for (int i = 0; i < lines.Length; i++)
                     {
                         if (i > 0) p.Inlines.Add(new LineBreak());
@@ -243,6 +258,58 @@ namespace Collab
         /// windows agree about what a monospace column is.
         static readonly FontFamily Mono = new FontFamily(
             new Uri("pack://application:,,,/"), "./Fonts/#JetBrains Mono");
+
+        /// What the block font actually resolved to, and what one cell measures.
+        ///
+        /// A pack URI that does not resolve does not throw — WPF falls back, and
+        /// the fallback is proportional, which shears a table while leaving every
+        /// character present. Written out once so the question can be answered
+        /// from outside the window rather than from a screenshot of it.
+        static bool reported;
+        internal static void ReportFont(double size)
+        {
+            if (reported) return;
+            reported = true;
+            try
+            {
+                var lines = new System.Collections.Generic.List<string>();
+                var names = string.Join(", ", Mono.FamilyNames.Values);
+                lines.Add("requested : JetBrains Mono (pack resource)");
+                lines.Add("resolved  : " + (names.Length == 0 ? "(nothing — fell back)" : names));
+                GlyphTypeface? gt = null;
+                foreach (var tf in Mono.GetTypefaces())
+                {
+                    if (tf.TryGetGlyphTypeface(out var g)) { gt = g; break; }
+                }
+                if (gt != null)
+                {
+                    var fam = "";
+                    foreach (var v in gt.FamilyNames.Values) { fam = v; break; }
+                    lines.Add("glyph face: " + fam);
+                    foreach (var ch in new[] { '0', 'M', '─', '│', '┌', '○', '▶', '→' })
+                    {
+                        var has = gt.CharacterToGlyphMap.TryGetValue(ch, out var gi);
+                        var adv = has ? gt.AdvanceWidths[gi] : -1;
+                        lines.Add($"  U+{(int)ch:X4} '{ch}'  {(has ? adv.ToString("0.0000") + " em" : "MISSING")}");
+                    }
+                }
+                else lines.Add("glyph face: could not be opened");
+                var dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Collab");
+                Directory.CreateDirectory(dir);
+                File.WriteAllLines(Path.Combine(dir, "block-font.txt"), lines);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var dir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Collab");
+                    File.WriteAllText(Path.Combine(dir, "block-font.txt"), "failed: " + ex.Message);
+                }
+                catch { }
+            }
+        }
 
         /// Who this window is, so the mention aimed at it can be picked out of the
         /// ones aimed at everybody else. Set once by the main window; empty just
