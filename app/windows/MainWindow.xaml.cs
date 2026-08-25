@@ -243,9 +243,28 @@ namespace Collab
         /// the assumption that broke.
         void OnSuggestKey(object s, KeyEventArgs e) => OnKey(s, e);
 
+        /// The suggestion row a click landed on, or null. Walks the visual tree
+        /// from what was actually clicked, rather than asking the ListBox — the
+        /// click lands on an element inside the item's template, which the
+        /// ListBox cannot attribute.
+        static ListBoxItem? RowUnder(DependencyObject? d)
+        {
+            while (d != null && d is not ListBoxItem)
+                d = System.Windows.Media.VisualTreeHelper.GetParent(d);
+            return d as ListBoxItem;
+        }
+
         void OnSuggestPick(object s, MouseButtonEventArgs e)
         {
-            if (Suggest.SelectedItem is string n) { Accept(n); }
+            // Whatever is under the pointer — NOT SelectedItem, which is the
+            // faintly highlighted row and, with non-focusable items, is not
+            // changed by clicking. Using it inserted the wrong name.
+            //
+            // No fallback: if the click cannot be attributed to a row, nothing
+            // is inserted. A wrong name typed for you is worse than a click
+            // that did nothing, because it looks like it worked.
+            var pick = RowUnder(e.OriginalSource as DependencyObject)?.Content as string;
+            if (pick != null) Accept(pick);
             Entry.Focus();
             Keyboard.Focus(Entry);
             e.Handled = true;
